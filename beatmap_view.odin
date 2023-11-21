@@ -27,6 +27,9 @@ current_beatmap_filename: string
 beatmap_view_error: string
 beatmap_view_error_audio: audio.AudioError
 
+seek_debounce_timer: f32 = 0
+seek_debounce_timer_amount :: 1
+
 set_beatmap_view_error :: proc(msg: string, audio_err: audio.AudioError) {
     beatmap_view_error = msg
     beatmap_view_error_audio = audio_err
@@ -43,6 +46,7 @@ TODO:
 
 - General issues
     - [] song playback desyncs if I scroll far enough, not sure why :(
+        - floating point issue. switch to storing playback with floats. But other songs were working fine though? idk man
 
 
 - Combo-colours
@@ -51,13 +55,12 @@ TODO:
     - [x] circles, slider heads
     - [x] slider bodies
     - [] object stacking
-    - [] slider snaking animation
+    - [] slider snaking animation ...
+        - [x] code support 
+    - [] slider un-snaking animation ...
         - [x] code support
-    - [] slider un-snaking animation, i.e receeding from the start towards the end, in earlier Lazer videos
-        - [] code support
-    - [x] spinners
-    - [] approach circles
-    - [] slider repeat arrows
+    - [x] approach circles
+    - [] slider repeat arrows ...
     - [] followpoints
     - spinners
         - [x] outline
@@ -113,6 +116,19 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
     circle_radius := osu_to_view({osu.get_circle_size(beatmap), 0}).x
 
     if hit_object.type == .Slider {
+        // slider ball
+        slider_ball_osu_pos, repeat, found_slider_ball := osu.get_slider_ball_pos(
+            slider_path_buffer,
+            hit_object,
+            beatmap_time,
+        )
+        if found_slider_ball {
+            slider_ball_pos := osu_to_view(slider_ball_osu_pos)
+
+            af.set_draw_params(color = {0, 1, 1, 0.5})
+            af.draw_circle(af.im, slider_ball_pos, circle_radius * 1.25, 64)
+        }
+
         // draw slider body
 
         draw_control_points :: false
@@ -198,25 +214,34 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
         af.set_draw_params(color = af.Color{1, 1, 1, 1 * opacity}, texture = nil)
         af.draw_circle_outline(af.im, circle_pos, circle_radius - thickness, 64, thickness)
 
-        af.set_draw_color(color = af.Color{1, 1, 1, 0.3 * opacity})
+        af.set_draw_color(color = af.Color{1, 1, 1, 0.1 * opacity})
         af.draw_circle(af.im, circle_pos, circle_radius - thickness, 64)
 
-        if beatmap_time < hit_object.time && beatmap_time + fade_in > hit_object.time {
-            // draw the approach circle
+        if beatmap_time < hit_object.time && beatmap_time + preempt > hit_object.time {
+            approach_circle_thickness :: 4
 
+            approach_circle_radius_max := circle_radius * 3
+            approach_circle_radius := math.lerp(
+                circle_radius,
+                approach_circle_radius_max,
+                f32((hit_object.time - beatmap_time) / preempt),
+            )
+
+            af.set_draw_params(color = {1, 1, 1, opacity})
+            af.draw_circle_outline(
+                af.im,
+                circle_pos,
+                approach_circle_radius,
+                64,
+                approach_circle_thickness,
+            )
         }
     }
 
-
     if hit_object.type == .Slider {
-        // slider ball
-        pos, ok := osu.get_slider_ball_pos(slider_path_buffer, hit_object, beatmap_time)
-        if ok {
-            pos := osu_to_view(pos)
-
-            af.set_draw_params(color = {0, 1, 1, 0.5})
-            af.draw_circle(af.im, pos, circle_radius * 1.25, 64)
-        }
+        text := fmt.tprintf("cost: %v", len(slider_path_buffer))
+        af.set_draw_color({0, 1, 0, 1})
+        af.draw_font_text(af.im, source_code_pro_regular, text, 32, circle_pos)
     }
 }
 
@@ -231,14 +256,15 @@ draw_osu_beatmap :: proc(beatmap: ^osu.Beatmap) {
     }
     if abs(af.mouse_wheel_notches) > 0.01 {
         wanted_music_time -= f64(af.mouse_wheel_notches) * scroll_speed
+        seek_debounce_timer = seek_debounce_timer_amount
     }
 
     if af.key_just_pressed(.Space) {
+        audio.set_playing(!audio.is_playing())
+
         if audio.is_playing() {
             audio.set_playback_seconds(wanted_music_time)
         }
-
-        audio.set_playing(!audio.is_playing())
     }
 
     if audio.is_playing() {
@@ -250,6 +276,12 @@ draw_osu_beatmap :: proc(beatmap: ^osu.Beatmap) {
         }
     } else {
         beatmap_time = math.lerp(beatmap_time, wanted_music_time, 20 * f64(af.delta_time))
+
+        if seek_debounce_timer > 0 {
+            seek_debounce_timer -= af.delta_time
+        } else {
+            audio.set_playback_seconds(wanted_music_time)
+        }
     }
 
     // make our playfield 4:3
@@ -277,18 +309,34 @@ draw_osu_beatmap :: proc(beatmap: ^osu.Beatmap) {
     }
 
     iterator := iterator_start
+    low_index := -1
+    hi_index := -1
     for hit_object_index in osu.beatmap_iterator(&iterator) {
+        if low_index == -1 {
+            low_index = hit_object_index
+        }
+        hi_index = hit_object_index
+
         draw_hit_object(beatmap, hit_object_index, preempt, fade_in)
     }
 
     af.set_draw_color(color = af.Color{1, 0, 0, 1})
-    af.draw_font_text(
-        af.im,
-        source_code_pro_regular,
-        fmt.tprintf("t=%v to %v", t0, t1),
-        32,
-        {0, af.vh() - 32},
+
+    draw_debug_text :: proc(text: string, x: f32) -> f32 {
+        res := af.draw_font_text(af.im, source_code_pro_regular, text, 32, {x, af.vh() - 32})
+
+        padding :: 0
+        return x + res.width + padding
+    }
+
+    x := draw_debug_text(fmt.tprintf("%v <- %v -> %v", t0, beatmap_time, t1), 0)
+    x = draw_debug_text(
+        fmt.tprintf(" | objects %v to %v of %v", low_index, hi_index, len(beatmap.hit_objects)),
+        x,
     )
+    if seek_debounce_timer > 0 {
+        x = draw_debug_text(fmt.tprintf(" | %vs till reseek", seek_debounce_timer), x)
+    }
 }
 
 
@@ -299,18 +347,22 @@ view_beatmap :: proc(beatmap_folder: string, beatmap_filename: string) -> string
     return ""
 }
 
-load_current_beatmap :: proc() {
-    beatmap_time = 0
-    wanted_music_time = 0
-
+beatmap_view_cleanup :: proc() {
     // clean up previous beatmap.
     if beatmap != nil {
-        osu.free_osu_beatmap(beatmap)
+        osu.free_beatmap(beatmap)
         beatmap = nil
 
         audio.free_music(music)
         music = nil
     }
+}
+
+load_current_beatmap :: proc() {
+    beatmap_time = 0
+    wanted_music_time = 0
+
+    beatmap_view_cleanup()
 
     // initialize this beatmap.
 
@@ -350,6 +402,8 @@ load_current_beatmap :: proc() {
 
 draw_beatmap_view :: proc() {
     if af.key_just_pressed(.Escape) {
+        beatmap_view_cleanup()
+
         set_screen(.BeatmapPickeView)
         return
     }

@@ -44,6 +44,10 @@ set_music :: proc(music: ^Music) -> AudioError {
 
     audio_context.current_music = music
 
+    if (music == nil) {
+        return {"", .SUCCESS}
+    }
+
     device_config := ma.device_config_init(ma.device_type.playback)
     device_config.playback.format = music.decoder.outputFormat
     device_config.playback.channels = music.decoder.outputChannels
@@ -165,6 +169,11 @@ new_music :: proc(filepath: cstring) -> (^Music, AudioError) {
 }
 
 free_music :: proc(music: ^Music) {
+    if audio_context.current_music == music {
+        set_playing(false)
+        set_music(nil)
+    }
+
     ma.decoder_uninit(&music.decoder)
     free(music)
 }

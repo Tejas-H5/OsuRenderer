@@ -60,19 +60,15 @@ init :: proc() {
 
 
 cleanup :: proc() {
+    // uninit main program
     defer audio.un_initialize()
     defer af.un_initialize()
     defer af.free_font(source_code_pro_regular)
+
+    // uninit beatmap view
     defer af.free_texture(slider_framebuffer_texture)
     defer af.free_framebuffer(slider_framebuffer)
-
-    defer if music != nil {
-        audio.free_music(music)
-    }
-
-    defer if beatmap != nil {
-        osu.free_osu_beatmap(beatmap)
-    }
+    defer beatmap_view_cleanup()
 }
 
 

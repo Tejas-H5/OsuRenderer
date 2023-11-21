@@ -66,6 +66,10 @@ parse_key_value_pair :: proc(line: string) -> (string, string, bool) {
 
 parse_lines_iterator :: proc(text: string, pos: ^int) -> (string, bool) {
     start := pos^
+    if start < 0 || start >= len(text) {
+        return "", false
+    }
+
     if text[start] == '\n' {
         start += 1
     }
@@ -82,6 +86,8 @@ parse_lines_iterator :: proc(text: string, pos: ^int) -> (string, bool) {
 
 
 Beatmap :: struct {
+    text:              string,
+
     // metadata
     AudioFilename:     string,
     AudioLeadIn:       int,
@@ -103,17 +109,19 @@ Beatmap :: struct {
     hit_objects:       []HitObject, // https://osu.ppy.sh/wiki/en/Client/File_formats/osu_%28file_format%29#hit-objects
 }
 
-free_osu_beatmap :: proc(beatmap: ^Beatmap) {
+free_beatmap :: proc(beatmap: ^Beatmap) {
     delete(beatmap.timing_points)
     delete(beatmap.combo_colors)
 
     for i in 0 ..< len(beatmap.hit_objects) {
-        free_osu_hitobject(&beatmap.hit_objects[i])
+        free_hitobject(&beatmap.hit_objects[i])
     }
     delete(beatmap.hit_objects)
+    delete(beatmap.text)
+    beatmap.text = ""
 }
 
-free_osu_hitobject :: proc(hitobject: ^HitObject) {
+free_hitobject :: proc(hitobject: ^HitObject) {
     delete(hitobject.slider_nodes)
 }
 
@@ -154,6 +162,7 @@ HitObject :: struct {
     slider_length:      f32,
     slider_edge_sounds: string,
     slider_edge_sets:   string,
+    hit_sample:         string,
 }
 
 SliderNodeType :: enum {
@@ -225,7 +234,7 @@ parse_section :: proc(text: string, pos: int, beatmap: ^Beatmap) -> (int, bool) 
     }
 
     section_name := text[pos + 1:end]
-    pos = next_index_of_proc(text, strings.is_space, false, end + 1)
+    pos = next_index_of_proc(text, strings.is_space, false, end + 1, if_not_found = len(text))
     switch (section_name) {
     case "General":
         for line in parse_lines_iterator(text, &pos) {
@@ -360,17 +369,6 @@ parse_hit_object :: proc(line: string) -> (HitObject, bool) {
     hitSound_str, _ := strings.split_iterator(&line, ",")
 
     object_params := line
-    hit_sample := ""
-    // The final object param for a hit object is actually the hit samples
-    last_comma_index := strings.last_index(object_params, ",")
-    if last_comma_index != -1 {
-        hit_sample = object_params[last_comma_index + 1:]
-        object_params = object_params[:last_comma_index]
-    } else {
-        // missing comma probably because there are no object params
-        hit_sample = object_params[last_comma_index + 1:]
-        object_params = ""
-    }
 
     x, _ := strconv.parse_f32(x_str)
     y, _ := strconv.parse_f32(y_str)
@@ -433,6 +431,9 @@ parse_hit_object :: proc(line: string) -> (HitObject, bool) {
         obj.slider_nodes = make([dynamic]SliderNode)
         obj.slider_repeats, _ = strconv.parse_int(slides_str)
         obj.slider_length, _ = strconv.parse_f32(length_str)
+        if obj.slider_length < 0.001 {
+            af.debug_warning("zero length slider!: %v in line %v", length_str, line)
+        }
 
         // Used for hitsounding each slider repeat. These two may not always be present
         obj.slider_edge_sounds, _ = strings.split_iterator(&object_params, ",")
@@ -500,6 +501,9 @@ parse_hit_object :: proc(line: string) -> (HitObject, bool) {
         }
     }
 
+    // The final object param for a hit object is actually the hit samples. but it may not be present
+    obj.hit_sample, _ = strings.split_iterator(&object_params, ",")
+
     return obj, true
 }
 
@@ -509,15 +513,15 @@ new_osu_beatmap :: proc(filepath: string) -> ^Beatmap {
         af.debug_log("couldn't read the text from the filepath %s", filepath)
         return nil
     }
-    defer delete(data)
 
-    text := string(data)
-    pos := 0
     beatmap: Beatmap
-    for pos < len(text) {
-        pos, ok = parse_section(text, pos, &beatmap)
+    beatmap.text = string(data)
+    pos := 0
+    for pos < len(beatmap.text) {
+        pos, ok = parse_section(beatmap.text, pos, &beatmap)
         if !ok {
             af.debug_log("failed to parse a section")
+            delete(data)
             return nil
         }
     }
