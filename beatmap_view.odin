@@ -14,6 +14,8 @@ import "osu"
 beatmap_time: f64 = 0
 wanted_music_time: f64 = 0
 
+beatmap_first_visible: int
+
 slider_path_buffer := [dynamic]af.Vec2{}
 slider_path_buffer_temp := [dynamic]af.Vec2{}
 
@@ -253,9 +255,19 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
         af.set_draw_color(color = af.Color{0, 0, 0, 1 * opacity})
         af.draw_circle_outline(af.im, circle_pos, circle_radius, 64, 1)
 
-        af.set_draw_color(color = af.Color{0, 1, 1, 0.3 * opacity})
+        af.set_draw_color(color = af.Color{0, 1, 1, 0.5 * opacity})
         af.draw_circle(af.im, circle_pos, circle_radius - thickness, 64)
 
+        nc_number_text_size := circle_radius
+        af.set_draw_color(color = {1, 1, 1, opacity})
+        af.draw_font_text_pivoted(
+            af.im,
+            source_code_pro_regular,
+            fmt.tprintf("%d", hit_object.combo_number),
+            nc_number_text_size,
+            circle_pos - {0, nc_number_text_size / 2},
+            -0.5,
+        )
 
         if beatmap_time < hit_object.start_time && beatmap_time + preempt > hit_object.start_time {
             approach_circle_thickness :: 5
@@ -278,11 +290,11 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
         }
     }
 
-    if hit_object.type == .Slider {
-        text := fmt.tprintf("cost: %v", len(slider_path_buffer))
-        af.set_draw_color({0, 1, 0, 1})
-        af.draw_font_text(af.im, source_code_pro_regular, text, 32, circle_pos)
-    }
+    // if hit_object.type == .Slider {
+    // text := fmt.tprintf("cost: %v", len(slider_path_buffer))
+    // af.set_draw_color({0, 1, 0, 1})
+    // af.draw_font_text(af.im, source_code_pro_regular, text, 32, circle_pos)
+    // }
 }
 
 draw_osu_beatmap :: proc(beatmap: ^osu.Beatmap) {
@@ -346,20 +358,10 @@ draw_osu_beatmap :: proc(beatmap: ^osu.Beatmap) {
     t0 := beatmap_time - preempt
     t1 := beatmap_time + fade_in
 
-    iterator_start := osu.BeatmapIterator {
-        beatmap = beatmap,
-    }
-
-    iterator := iterator_start
-    low_index := -1
-    hi_index := -1
-    for hit_object_index in osu.beatmap_iterator(&iterator, t0, t1) {
-        if low_index == -1 {
-            hi_index = hit_object_index
-        }
-        low_index = hit_object_index
-
-        draw_hit_object(beatmap, hit_object_index, preempt, fade_in)
+    beatmap_first_visible = osu.beatmap_get_first_visible(beatmap, t0, beatmap_first_visible)
+    beatmap_last_visible := osu.beatmap_get_last_visible(beatmap, t1, beatmap_first_visible)
+    for i := beatmap_last_visible; i >= beatmap_first_visible; i -= 1 {
+        draw_hit_object(beatmap, i, preempt, fade_in)
     }
 
     af.set_draw_color(color = af.Color{1, 0, 0, 1})
@@ -373,7 +375,12 @@ draw_osu_beatmap :: proc(beatmap: ^osu.Beatmap) {
 
     x := draw_debug_text(fmt.tprintf("%v <- %v -> %v", t0, beatmap_time, t1), 0)
     x = draw_debug_text(
-        fmt.tprintf(" | objects %v to %v of %v", low_index, hi_index, len(beatmap.hit_objects)),
+        fmt.tprintf(
+            " | objects %v to %v of %v",
+            beatmap_first_visible,
+            beatmap_last_visible,
+            len(beatmap.hit_objects),
+        ),
         x,
     )
     if seek_debounce_timer > 0 {

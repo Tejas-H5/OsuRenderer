@@ -111,6 +111,20 @@ calculate_opacity :: proc(
     return f32(math.lerp(one, zero, t))
 }
 
+recalculate_combo_number :: proc(beatmap: ^Beatmap, starting_from: int) {
+    hit_objects := beatmap.hit_objects
+
+    i := beatmap_get_new_combo_start(beatmap, starting_from)
+    current_number := 1
+    for ; i < len(hit_objects); i += 1 {
+        if hit_object_is_new_combo(hit_objects[i]) {
+            current_number = 1
+        }
+        hit_objects[i].combo_number = current_number
+        current_number += 1
+    }
+}
+
 // recalculates the following for objects:
 //  end_position
 //  end_time
@@ -120,6 +134,7 @@ recalculate_object_values :: proc(
     slider_path_buffer_main, slider_path_buffer_temp: ^[dynamic]Vec2,
     slider_lod: f32,
 ) {
+    recalculate_combo_number(beatmap, 0)
     recalculate_object_end_time(beatmap, hit_object_index)
     recalculate_object_end_position(
         beatmap,

@@ -164,9 +164,10 @@ HitObject :: struct {
     slider_edge_sets:   string,
     hit_sample:         string,
 
-    // used for stacking
+    // these props need to be recalculated
     stack_count:        int,
     end_position:       Vec2,
+    combo_number:       int,
 }
 
 SliderNodeType :: enum {
@@ -502,7 +503,7 @@ parse_hit_object :: proc(line: string) -> (HitObject, bool) {
                 append(&obj.slider_nodes, SliderNode{pos = pos, type = .Bezier})
             }
         case:
-            af.debug_log("NOTE: unhandled bezier curve node type - '%s'", curve_type)
+            af.debug_warning("unhandled bezier curve node type - '%s'", curve_type)
         }
     }
 
@@ -583,36 +584,65 @@ get_fade_in :: proc(beatmap: ^Beatmap) -> f32 {
 }
 
 
-BeatmapIterator :: struct {
-    beatmap: ^Beatmap,
-    index:   int,
-    started: bool,
+/*
+
+o========o o o o o o   o=====o 
+    |                    |
+first_visible           last_visible
+*/
+
+beatmap_get_first_visible :: proc(beatmap: ^Beatmap, t: f64, seek_from: int) -> int {
+    if len(beatmap.hit_objects) == 0 {
+        return 0
+    }
+
+    i := seek_from
+    if i > len(beatmap.hit_objects) {
+        i = len(beatmap.hit_objects) - 1
+    }
+
+    for i > 0 && beatmap.hit_objects[i].end_time > t {
+        i -= 1
+    }
+
+    for i < len(beatmap.hit_objects) - 1 && beatmap.hit_objects[i].end_time < t {
+        i += 1
+    }
+
+    return i
 }
 
-// beatmap_iterator iterates throug objects in the given timeframe backwards.
-beatmap_iterator :: proc(iterator: ^BeatmapIterator, t0, t1: f64) -> (int, bool) {
-    if iterator.index >= len(iterator.beatmap.hit_objects) || iterator.index < 0 {
-        return -1, false
+beatmap_get_last_visible :: proc(beatmap: ^Beatmap, t: f64, seek_from: int) -> int {
+    if len(beatmap.hit_objects) == 0 {
+        return 0
     }
 
-    if !iterator.started {
-        iterator.index = len(iterator.beatmap.hit_objects)
-        iterator.started = true
+    i := seek_from
+    if i > len(beatmap.hit_objects) {
+        i = len(beatmap.hit_objects) - 1
     }
 
-    for iterator.index > 0 {
-        iterator.index -= 1
+    for i < len(beatmap.hit_objects) - 1 && beatmap.hit_objects[i].start_time < t {
+        i += 1
+    }
 
-        hit_object := iterator.beatmap.hit_objects[iterator.index]
-        if hit_object.start_time > t1 {
-            continue
+    for i > 0 && beatmap.hit_objects[i].start_time > t {
+        i -= 1
+    }
+    return i
+}
+
+
+hit_object_is_new_combo :: proc(hit_object: HitObject) -> bool {
+    return hit_object.type == .Spinner || hit_object.is_new_combo
+}
+
+beatmap_get_new_combo_start :: proc(beatmap: ^Beatmap, hit_object_index: int) -> int {
+    for i := hit_object_index; i > 0; i -= 1 {
+        if hit_object_is_new_combo(beatmap.hit_objects[i]) {
+            return i
         }
-        if hit_object.end_time < t0 {
-            break
-        }
-
-        return iterator.index, true
     }
 
-    return -1, false
+    return 0
 }
