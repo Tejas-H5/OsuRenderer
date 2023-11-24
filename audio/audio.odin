@@ -127,6 +127,8 @@ set_playback_seconds :: proc(seconds: f64) -> AudioError {
         return {"", .SUCCESS}
     }
 
+    seconds := max(0, seconds)
+
     decoder := &audio_context.current_music.decoder
     cursor := u64(seconds * f64(decoder.outputSampleRate))
 

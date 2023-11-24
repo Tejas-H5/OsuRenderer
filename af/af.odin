@@ -800,12 +800,7 @@ CapType :: enum {
     Circle,
 }
 
-draw_line :: proc(
-    output: ^MeshBuffer,
-    p0, p1: Vec2,
-    thickness: f32 = 1,
-    cap_type := CapType.None,
-) {
+draw_line :: proc(output: ^MeshBuffer, p0, p1: Vec2, thickness: f32, cap_type: CapType) {
     draw_cap :: proc(output: ^MeshBuffer, pos: Vec2, angle, thickness: f32, cap_type: CapType) {
         switch cap_type {
         case .None:

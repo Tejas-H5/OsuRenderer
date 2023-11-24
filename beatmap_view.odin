@@ -4,6 +4,7 @@ import "af"
 import "audio"
 import "core:fmt"
 import "core:math"
+import "core:math/linalg"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
@@ -29,64 +30,18 @@ beatmap_view_error_audio: audio.AudioError
 
 seek_debounce_timer: f32 = 0
 seek_debounce_timer_amount :: 1
+draw_control_points := false
 
 set_beatmap_view_error :: proc(msg: string, audio_err: audio.AudioError) {
     beatmap_view_error = msg
     beatmap_view_error_audio = audio_err
 }
 
-/**
 
-Main objectives:
-
-- test my odin renderer, get better at programming, find edges of the Odin language
-- more natural looking osu AI movement
-
-TODO:
-
-- General issues
-    - [] song playback desyncs if I scroll far enough, not sure why :(
-        - floating point issue. switch to storing playback with floats. But other songs were working fine though? idk man
-
-
-- Combo-colours
-- Hit objects
-    - [x] load them from the beatmap
-    - [x] circles, slider heads
-    - [x] slider bodies
-    - [] object stacking
-    - [] slider snaking animation ...
-        - [x] code support 
-    - [] slider un-snaking animation ...
-        - [x] code support
-    - [x] approach circles
-    - [] slider repeat arrows ...
-    - [] followpoints
-    - spinners
-        - [x] outline
-        - [] spin animation
-    - [] combo numbers
-    - combo colours
-        - [] basic support
-        - [] load them from the beatmap
-
-- [] Background image
-- Music
-    - [x] basic support
-    - [] load and use the beatmap music
-- Hitsounds
-    - [] basic support
-    - [] load and use the beatmap hitsounds
-
-- AI cursor
-    - [] osu! auto mod movement
-    - [] more natural looking osu AI movement
-*/
-
+SLIDER_LOD :: 10
 
 draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64) {
     // TODO: move
-    osu.calculate_object_end_time(beatmap, index)
     hit_object := beatmap.hit_objects[index]
     original_layout_rect := af.layout_rect
 
@@ -111,27 +66,22 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
         return {af.vw() * f32(x) / 512, af.vh() * (1 - f32(y) / 384)}
     }
 
-    thickness :: 5
-    circle_pos := osu_to_view(hit_object.position)
-    circle_radius := osu_to_view({osu.get_circle_size(beatmap), 0}).x
+    osu_to_view_dir :: proc(dir: af.Vec2) -> af.Vec2 {
+        return osu_to_view(dir) - osu_to_view({0, 0})
+    }
+
+
+    circle_radius_osu := osu.get_circle_radius(beatmap)
+    circle_radius := osu_to_view_dir({circle_radius_osu, 0}).x
+    thickness: f32 = circle_radius / 10
+
+    // stack_offset_amount is the stack offset from https://gist.github.com/peppy/1167470
+    // NOTE(peppy): ymmv
+    stack_offset_osu := (circle_radius_osu / 10) * af.Vec2{1, 1}
+    circle_pos := osu_to_view(osu.get_hit_object_stacked_position(hit_object, circle_radius_osu))
 
     if hit_object.type == .Slider {
-        // slider ball
-        slider_ball_osu_pos, repeat, found_slider_ball := osu.get_slider_ball_pos(
-            slider_path_buffer,
-            hit_object,
-            beatmap_time,
-        )
-        if found_slider_ball {
-            slider_ball_pos := osu_to_view(slider_ball_osu_pos)
-
-            af.set_draw_params(color = {0, 1, 1, 0.5})
-            af.draw_circle(af.im, slider_ball_pos, circle_radius * 1.25, 64)
-        }
-
         // draw slider body
-
-        draw_control_points :: false
 
         if draw_control_points {
             // control points. TODO: remove or something
@@ -160,17 +110,29 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
             }
         }
 
+        slider_end_length := hit_object.slider_length
+        if beatmap_time < hit_object.start_time {
+            snake_duration :: 0.2
+            t: f32 =
+                1 -
+                math.min(
+                    1,
+                    math.max(0, -f32(beatmap_time - hit_object.start_time) / snake_duration),
+                )
+            slider_end_length = t * hit_object.slider_length
+        }
+
         // The main slider body. 
         // TODO: get this fully working
         osu.generate_slider_path(
             hit_object.slider_nodes,
             &slider_path_buffer,
             &slider_path_buffer_temp,
-            hit_object.slider_length,
-            10,
+            slider_end_length,
+            SLIDER_LOD,
         )
 
-        if len(slider_path_buffer) > 0 {
+        if len(slider_path_buffer) >= 2 {
             // draw slider end
             slider_end_pos := slider_path_buffer[len(slider_path_buffer) - 1]
             af.set_draw_params(color = af.Color{1, 1, 1, 1 * opacity}, texture = nil)
@@ -184,10 +146,16 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
             )
             af.set_framebuffer(slider_framebuffer)
             af.clear_screen({0, 0, 0, 0})
-            stroke_slider_path :: proc(thickness: f32) {
-                for i in 1 ..< len(slider_path_buffer) {
-                    p0 := osu_to_view(slider_path_buffer[i - 1])
-                    p1 := osu_to_view(slider_path_buffer[i])
+            stroke_slider_path :: proc(thickness: f32, slider_end_length: f32) {
+                iter: osu.SliderPathIterator
+                for p0, p1 in osu.slider_path_iterator(
+                    &iter,
+                    slider_path_buffer,
+                    0,
+                    slider_end_length,
+                ) {
+                    p0 := osu_to_view(p0)
+                    p1 := osu_to_view(p1)
                     af.draw_line(af.im, p0, p1, thickness, .Circle)
                 }
             }
@@ -195,10 +163,10 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
             af.set_stencil_mode(.WriteOnes)
             af.clear_stencil()
             af.set_draw_color(color = af.Color{0, 0, 0, 0})
-            stroke_slider_path((circle_radius - thickness) * 2)
+            stroke_slider_path((circle_radius - thickness) * 2, slider_end_length)
             af.set_stencil_mode(.DrawOverZeroes)
             af.set_draw_color(color = af.Color{1, 1, 1, 1})
-            stroke_slider_path(circle_radius * 2)
+            stroke_slider_path(circle_radius * 2, slider_end_length)
             af.set_stencil_mode(.Off)
 
             af.set_framebuffer(nil)
@@ -206,6 +174,74 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
             af.set_draw_params(color = {1, 1, 1, opacity}, texture = slider_framebuffer_texture)
             af.draw_rect(af.im, af.window_rect)
             af.set_layout_rect(original_layout_rect, false)
+            // slider ball
+            slider_ball_osu_pos, repeat, has_slider_ball := osu.get_slider_ball_pos(
+                slider_path_buffer,
+                hit_object,
+                beatmap_time,
+            )
+            if has_slider_ball {
+                slider_ball_pos := osu_to_view(slider_ball_osu_pos)
+
+                af.set_draw_params(color = {0, 1, 1, 0.5})
+                af.draw_circle(af.im, slider_ball_pos, circle_radius * 1.25, 64)
+            }
+
+            // slider repeat arrows
+            remaining_repeats := hit_object.slider_repeats - repeat
+            draw_repeat_start, draw_repeat_end: bool
+            switch {
+            case remaining_repeats >= 2:
+                draw_repeat_start, draw_repeat_end = true, true
+            case remaining_repeats == 1:
+                draw_repeat_end = hit_object.slider_repeats % 2 == 0
+                draw_repeat_start = !draw_repeat_end
+            }
+
+            draw_slider_repeat_arrow :: proc(start, start_plus_dir: af.Vec2, circle_radius: f32) {
+                angle_vec :: proc(angle, size: f32) -> af.Vec2 {
+                    return size * af.Vec2{math.cos(angle), math.sin(angle)}
+                }
+
+                thickness_percent :: 0.15
+                arrow_wing_percent :: 0.3
+
+                arrow_dir := linalg.normalize(start_plus_dir - start)
+                arrow_angle := math.atan2(arrow_dir.y, arrow_dir.x)
+
+                arrow_start := start - arrow_dir * circle_radius * 0.5
+                arrow_end := start + arrow_dir * circle_radius * 0.5
+
+                line_thickness := thickness_percent * circle_radius
+                af.draw_line(af.im, arrow_start, arrow_end, line_thickness, .Circle)
+
+                arrow_wing_size := arrow_wing_percent * circle_radius
+                arrow_rwing_end :=
+                    arrow_end + angle_vec(arrow_angle + math.PI * 0.75, arrow_wing_size)
+                arrow_lwing_end :=
+                    arrow_end + angle_vec(arrow_angle - math.PI * 0.75, arrow_wing_size)
+
+                af.draw_line(af.im, arrow_end, arrow_rwing_end, line_thickness, .Circle)
+                af.draw_line(af.im, arrow_end, arrow_lwing_end, line_thickness, .Circle)
+            }
+
+            af.set_draw_params(color = {1, 1, 1, opacity})
+            if draw_repeat_start {
+                draw_slider_repeat_arrow(
+                    osu_to_view(slider_path_buffer[0]),
+                    osu_to_view(slider_path_buffer[1]),
+                    circle_radius,
+                )
+            }
+
+            if draw_repeat_end {
+                n := len(slider_path_buffer)
+                draw_slider_repeat_arrow(
+                    osu_to_view(slider_path_buffer[n - 1]),
+                    osu_to_view(slider_path_buffer[n - 2]),
+                    circle_radius,
+                )
+            }
         }
     }
 
@@ -214,17 +250,21 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
         af.set_draw_params(color = af.Color{1, 1, 1, 1 * opacity}, texture = nil)
         af.draw_circle_outline(af.im, circle_pos, circle_radius - thickness, 64, thickness)
 
-        af.set_draw_color(color = af.Color{1, 1, 1, 0.1 * opacity})
+        af.set_draw_color(color = af.Color{0, 0, 0, 1 * opacity})
+        af.draw_circle_outline(af.im, circle_pos, circle_radius, 64, 1)
+
+        af.set_draw_color(color = af.Color{0, 1, 1, 0.3 * opacity})
         af.draw_circle(af.im, circle_pos, circle_radius - thickness, 64)
 
-        if beatmap_time < hit_object.time && beatmap_time + preempt > hit_object.time {
-            approach_circle_thickness :: 4
 
-            approach_circle_radius_max := circle_radius * 3
+        if beatmap_time < hit_object.start_time && beatmap_time + preempt > hit_object.start_time {
+            approach_circle_thickness :: 5
+
+            approach_circle_radius_max := circle_radius * 4
             approach_circle_radius := math.lerp(
                 circle_radius,
                 approach_circle_radius_max,
-                f32((hit_object.time - beatmap_time) / preempt),
+                f32((hit_object.start_time - beatmap_time) / preempt),
             )
 
             af.set_draw_params(color = {1, 1, 1, opacity})
@@ -257,6 +297,10 @@ draw_osu_beatmap :: proc(beatmap: ^osu.Beatmap) {
     if abs(af.mouse_wheel_notches) > 0.01 {
         wanted_music_time -= f64(af.mouse_wheel_notches) * scroll_speed
         seek_debounce_timer = seek_debounce_timer_amount
+    }
+
+    if af.key_just_pressed(.C) {
+        draw_control_points = !draw_control_points
     }
 
     if af.key_just_pressed(.Space) {
@@ -304,18 +348,16 @@ draw_osu_beatmap :: proc(beatmap: ^osu.Beatmap) {
 
     iterator_start := osu.BeatmapIterator {
         beatmap = beatmap,
-        t0      = t0,
-        t1      = t1,
     }
 
     iterator := iterator_start
     low_index := -1
     hi_index := -1
-    for hit_object_index in osu.beatmap_iterator(&iterator) {
+    for hit_object_index in osu.beatmap_iterator(&iterator, t0, t1) {
         if low_index == -1 {
-            low_index = hit_object_index
+            hi_index = hit_object_index
         }
-        hi_index = hit_object_index
+        low_index = hit_object_index
 
         draw_hit_object(beatmap, hit_object_index, preempt, fade_in)
     }
@@ -364,8 +406,7 @@ load_current_beatmap :: proc() {
 
     beatmap_view_cleanup()
 
-    // initialize this beatmap.
-
+    // load beatmap file
     beatmap_fullpath := filepath.join([]string{current_beatmap_folder, current_beatmap_filename})
     defer delete(beatmap_fullpath)
     beatmap = osu.new_osu_beatmap(beatmap_fullpath)
@@ -374,6 +415,21 @@ load_current_beatmap :: proc() {
         return
     }
 
+    // initialize the beatmap. 
+    // TODO: may need to move this code to a better place if we ever want to add an editor, but that is unlikely at this stage
+    for i in 0 ..< len(beatmap.hit_objects) {
+        osu.recalculate_object_values(
+            beatmap,
+            i,
+            &slider_path_buffer,
+            &slider_path_buffer_temp,
+            SLIDER_LOD,
+        )
+    }
+
+    osu.recalculate_stack_counts(beatmap)
+
+    // load and set the music
     music_fullpath := filepath.join([]string{current_beatmap_folder, beatmap.AudioFilename})
     music_fullpath_cstr := strings.clone_to_cstring(music_fullpath)
     delete(music_fullpath)

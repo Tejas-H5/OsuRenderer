@@ -1,0 +1,47 @@
+Main objectives:
+
+- test my odin renderer, get better at programming, find edges of the Odin language
+- more natural looking osu AI movement
+
+TODO:
+
+- General issues
+    - [] song playback desyncs if I scroll far enough, not sure why :(
+        - floating point issue. switch to storing playback with floats. But other songs were working fine though? idk man
+
+
+- Combo-colours
+- Hit objects
+    - [x] load them from the beatmap
+    - [x] circles, slider heads
+    - [x] slider bodies
+    - [x] object stacking https://osu.ppy.sh/wiki/en/Beatmap/Stack_leniency
+        - [x] end_position, end_time for all the sliders. 
+    - [] followpoints ...
+    - [] combo numbers ...
+    - [x] slider snaking animation working through bugs
+        - [x] code support 
+    - [] slider un-snaking animation ...
+        - [x] code support
+    - [x] approach circles
+    - [x] slider repeat arrows
+        - [] animations for repeat arrows
+    - spinners
+        - [x] outline
+        - [] spin animation
+    - combo colours
+        - [] basic support
+        - [] load them from the beatmap
+
+- [] Background image
+- Music
+    - [x] basic support
+    - [] load and use the beatmap music
+- Hitsounds
+    - [] basic support
+    - [] load and use the beatmap hitsounds
+
+- AI cursor
+    - [] osu! auto mod movement
+    - [] more natural looking osu AI movement
+

@@ -153,16 +153,20 @@ Vec2 :: linalg.Vector2f32
 HitObject :: struct {
     type:               HitObjectType,
     is_new_combo:       bool,
-    time:               f64,
+    start_time:         f64,
+    end_time:           f64, // spinner. NOTE: for sliders, this is inferred by it's slider_length and the current slider velocity
     position:           Vec2, // an osu! pixel is confined to a 512, 384 playfield - https://osu.ppy.sh/wiki/en/Client/Playfield
     hit_sound:          int,
-    end_time:           f64, // spinner. NOTE: for sliders, this is inferred by it's slider_length and the current slider velocity
     slider_nodes:       [dynamic]SliderNode,
     slider_repeats:     int,
     slider_length:      f32,
     slider_edge_sounds: string,
     slider_edge_sets:   string,
     hit_sample:         string,
+
+    // used for stacking
+    stack_count:        int,
+    end_position:       Vec2,
 }
 
 SliderNodeType :: enum {
@@ -373,9 +377,10 @@ parse_hit_object :: proc(line: string) -> (HitObject, bool) {
     x, _ := strconv.parse_f32(x_str)
     y, _ := strconv.parse_f32(y_str)
     obj.position = Vec2{x, y}
-    obj.time, _ = strconv.parse_f64(time_str)
-    obj.time /= 1000
-    obj.end_time = obj.time
+    obj.end_position = obj.position
+    obj.start_time, _ = strconv.parse_f64(time_str)
+    obj.start_time /= 1000
+    obj.end_time = obj.start_time
     type_bitfield_int, _ := strconv.parse_int(type_str)
     type_bitfield := u8(type_bitfield_int)
     obj.hit_sound, _ = strconv.parse_int(hitSound_str)
@@ -508,12 +513,14 @@ parse_hit_object :: proc(line: string) -> (HitObject, bool) {
 }
 
 new_osu_beatmap :: proc(filepath: string) -> ^Beatmap {
+    // load data from file
     data, ok := os.read_entire_file_from_filename(filepath)
     if !ok {
         af.debug_log("couldn't read the text from the filepath %s", filepath)
         return nil
     }
 
+    // parse the file into objects
     beatmap: Beatmap
     beatmap.text = string(data)
     pos := 0
@@ -529,7 +536,7 @@ new_osu_beatmap :: proc(filepath: string) -> ^Beatmap {
     return new_clone(beatmap)
 }
 
-get_circle_size :: proc(beatmap: ^Beatmap) -> f32 {
+get_circle_radius :: proc(beatmap: ^Beatmap) -> f32 {
     /*
         Taken from https://osu.ppy.sh/wiki/cs/Beatmapping/Circle_size:
 
@@ -578,26 +585,33 @@ get_fade_in :: proc(beatmap: ^Beatmap) -> f32 {
 
 BeatmapIterator :: struct {
     beatmap: ^Beatmap,
-    t0, t1:  f64,
     index:   int,
+    started: bool,
 }
 
-beatmap_iterator :: proc(iterator: ^BeatmapIterator) -> (int, bool) {
-    if iterator.index >= len(iterator.beatmap.hit_objects) {
+// beatmap_iterator iterates throug objects in the given timeframe backwards.
+beatmap_iterator :: proc(iterator: ^BeatmapIterator, t0, t1: f64) -> (int, bool) {
+    if iterator.index >= len(iterator.beatmap.hit_objects) || iterator.index < 0 {
         return -1, false
     }
 
-    for iterator.index < len(iterator.beatmap.hit_objects) {
+    if !iterator.started {
+        iterator.index = len(iterator.beatmap.hit_objects)
+        iterator.started = true
+    }
+
+    for iterator.index > 0 {
+        iterator.index -= 1
+
         hit_object := iterator.beatmap.hit_objects[iterator.index]
-        iterator.index += 1
-        if hit_object.end_time < iterator.t0 {
+        if hit_object.start_time > t1 {
             continue
         }
-        if hit_object.time > iterator.t1 {
+        if hit_object.end_time < t0 {
             break
         }
 
-        return iterator.index - 1, true
+        return iterator.index, true
     }
 
     return -1, false

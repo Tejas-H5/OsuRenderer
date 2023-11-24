@@ -71,35 +71,39 @@ get_slider_ball_pos :: proc(
     slider: HitObject,
     current_time: f64,
 ) -> (
-    Vec2,
-    int,
-    bool,
+    slider_ball_pos: Vec2,
+    current_repeat: int,
+    has_slider_ball: bool,
 ) {
-    if slider.type != .Slider || math.abs(slider.end_time - slider.time) < 0.00001 {
-        return {}, 0, false
+    if slider.type != .Slider || math.abs(slider.end_time - slider.start_time) < 0.00001 {
+        return
     }
 
-    start_time := slider.time
+    start_time := slider.start_time
     end_time := slider.end_time
 
     if current_time <= start_time {
-        return {}, 0, false
+        current_repeat = 1
+        return
     }
 
     if current_time >= end_time {
         // TODO: decide if this is useful or not
+        current_repeat = slider.slider_repeats + 1
 
         if slider.slider_repeats % 2 == 1 {
-            return slider_path[len(slider_path) - 1], slider.slider_repeats, false
+            slider_ball_pos = slider_path[len(slider_path) - 1]
+            return
         }
 
-        return slider_path[0], 0, false
+        slider_ball_pos = slider_path[0]
+        return
     }
 
     slider_time_no_repeat := (end_time - start_time) / f64(slider.slider_repeats)
     elapsed_time := current_time - start_time
     going_backwards := false
-    current_repeat := 1
+    current_repeat = 1
     for elapsed_time > slider_time_no_repeat {
         going_backwards = !going_backwards
         elapsed_time -= slider_time_no_repeat
@@ -115,7 +119,6 @@ get_slider_ball_pos :: proc(
     }
 
     iter: SliderPathIterator
-    slider_ball_pos: Vec2
     found := false
     for p0, _ in slider_path_iterator(&iter, slider_path, distance, 100000000) {
         slider_ball_pos = p0
@@ -132,17 +135,19 @@ generate_slider_path :: proc(
     slider_nodes: [dynamic]SliderNode,
     output: ^[dynamic]Vec2,
     temp_buffer: ^[dynamic]Vec2,
-    slider_length: f32,
+    slider_len: f32,
     level_of_detail: f32,
 ) {
     clear(output)
+    clear(temp_buffer)
     // generate the basic shape of the slider.
     // right now, the output is actually the 'temp' buffer
 
     current_node := 0
     end_node := 0
     current_length: f32
-    for end_node != len(slider_nodes) - 1 {
+    remaining_distance := slider_len
+    for end_node != len(slider_nodes) - 1 && remaining_distance > 0 {
         end_node = find_next_red_node_or_end(slider_nodes, current_node + 1)
 
         if end_node - current_node == 1 {
@@ -168,16 +173,18 @@ generate_slider_path :: proc(
             )
         }
 
+        iter: SliderPathIterator
         if len(temp_buffer) > 0 {
-            iter: SliderPathIterator
             first := true
-            for p0, p1 in slider_path_iterator(&iter, temp_buffer^, 0, slider_length) {
+            remaining_distance_orig := remaining_distance
+            for p0, p1 in slider_path_iterator(&iter, temp_buffer^, 0, remaining_distance_orig) {
                 if first {
                     first = false
                     append(output, p0)
                 }
 
                 append(output, p1)
+                remaining_distance -= linalg.length(p0 - p1)
             }
         }
 
