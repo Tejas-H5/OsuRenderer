@@ -35,6 +35,7 @@ window: glfw.WindowHandle
 last_frame_time: f64
 delta_time: f32
 layout_rect: Rect
+window_render_fn: (proc() -> bool)
 
 window_rect: Rect // NOTE: x0, y0 are always zero. 
 framebuffer_rect: Rect
@@ -101,6 +102,12 @@ vh :: proc() -> f32 {
     return layout_rect.height
 }
 
+// render_fn should return true if the loop should continue for one more frame, and false if it shuold exit
+run_main_loop :: proc(render_fn: (proc() -> bool)) {
+    window_render_fn = render_fn
+    for !window_should_close() && render_fn() {}
+}
+
 set_target_fps :: proc(fps: int) {
     target_fps = fps
 }
@@ -148,6 +155,10 @@ internal_glfw_framebuffer_size_callback :: proc "c" (
 
     context = runtime.default_context()
     internal_on_framebuffer_resize(width, height)
+
+    if window_render_fn != nil {
+        window_render_fn()
+    }
 }
 
 @(private)
@@ -911,7 +922,8 @@ draw_line_outline :: proc(
 
 
 DrawFontTextMeasureResult :: struct {
-    width: f32,
+    width:   f32, // how wide is the text?
+    str_pos: int, // how far into the text did we get to? (makes more sense if you set a max_width on the text)
 }
 
 draw_font_text_pivoted :: proc(
@@ -920,10 +932,27 @@ draw_font_text_pivoted :: proc(
     text: string,
     size: f32,
     pos: Vec2,
-    pivot_x: f32,
+    pivot: Vec2,
+    max_width: f32 = math.INF_F32,
 ) -> DrawFontTextMeasureResult {
-    res := draw_font_text(output, font, text, size, pos, is_measuring = true)
-    res = draw_font_text(output, font, text, size, {pos.x + pivot_x * res.width, pos.y})
+    res := draw_font_text(
+        output,
+        font,
+        text,
+        size,
+        pos,
+        is_measuring = true,
+        max_width = max_width,
+    )
+    res = draw_font_text(
+        output,
+        font,
+        text,
+        size,
+        {pos.x - pivot.x * res.width, pos.y - pivot.y * size},
+        is_measuring = false,
+        max_width = max_width,
+    )
 
     return res
 }
@@ -935,6 +964,7 @@ draw_font_text :: proc(
     size: f32,
     pos: Vec2,
     is_measuring := false,
+    max_width: f32 = math.INF_F32,
 ) -> DrawFontTextMeasureResult {
     prev_texture := current_texture
     if !is_measuring {
@@ -950,11 +980,17 @@ draw_font_text :: proc(
 
         glyph_info := get_font_glyph_info(font, codepoint)
 
+        next_x := x + glyph_info.advance_x * size
+        if next_x > max_width {
+            x = next_x
+            break
+        }
+
         if !is_measuring {
             draw_font_glyph(output, font, glyph_info, size, {x, pos.y})
         }
 
-        x += glyph_info.advance_x * size
+        x = next_x
     }
 
     if !is_measuring {

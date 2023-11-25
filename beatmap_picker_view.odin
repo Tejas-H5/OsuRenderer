@@ -47,7 +47,7 @@ draw_beatmap_picker :: proc() {
             beatmap_picker_error,
             24,
             {af.vw() / 2, af.vh() / 2},
-            -0.5,
+            {0.5, 0.5},
         )
         return
     }

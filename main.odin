@@ -21,7 +21,14 @@ count_and_draw_fps :: proc() {
     }
 
     af.set_draw_params(color = {1, 0, 0, 1})
-    af.draw_font_text(af.im, source_code_pro_regular, fmt.tprintf("fps: %v", fps), 32, {0, 0})
+    af.draw_font_text_pivoted(
+        af.im,
+        source_code_pro_regular,
+        fmt.tprintf("fps: %v", fps),
+        32,
+        {af.vw() - 10, 0},
+        {1, 0},
+    )
 }
 
 
@@ -85,37 +92,39 @@ set_screen :: proc(screen: AppScreen) {
     screens_moved = true
 }
 
+render :: proc() -> bool {
+    af.begin_frame()
+    af.clear_screen({0, 0, 0, 0})
+
+    base_layout := af.layout_rect
+
+    current_screen_original := current_screen
+    switch current_screen {
+    case .BeatmapPickeView:
+        draw_beatmap_picker()
+    case .BeatmapView:
+        draw_beatmap_view()
+    case .Exit:
+    // break (does nothing here cause its a switch lol)
+    }
+
+    af.set_layout_rect(base_layout)
+    count_and_draw_fps()
+
+    free_all(context.temp_allocator)
+    af.end_frame()
+
+    if current_screen == .Exit {
+        return false
+    }
+
+    return true
+}
+
 main :: proc() {
     init()
     defer cleanup()
 
     set_screen(.BeatmapPickeView)
-
-    for !af.window_should_close() {
-        af.begin_frame()
-        af.clear_screen({0, 0, 0, 0})
-
-        count_and_draw_fps()
-
-        rect := af.layout_rect
-        af.set_rect_size(&rect, rect.width, rect.height - 64, 0.5, 0.5)
-        af.set_layout_rect(rect)
-
-        current_screen_original := current_screen
-        switch current_screen {
-        case .BeatmapPickeView:
-            draw_beatmap_picker()
-        case .BeatmapView:
-            draw_beatmap_view()
-        case .Exit:
-        // break (does nothing here cause its a switch lol)
-        }
-
-        free_all(context.temp_allocator)
-        af.end_frame()
-
-        if current_screen == .Exit {
-            break
-        }
-    }
+    af.run_main_loop(render)
 }

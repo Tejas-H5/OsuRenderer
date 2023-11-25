@@ -169,7 +169,7 @@ draw_file_picker :: proc(file_viewer: ^FilePickerState) {
             search_bar_str,
             text_size,
             {af.vw() / 2, af.vh() - 32},
-            -0.5,
+            {0.5, 0.5},
         )
 
         if got_input {

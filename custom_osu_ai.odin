@@ -37,11 +37,13 @@ get_spinner_cursor_pos :: proc(angle: f32) -> osu.Vec2 {
     return center + angle_vec(angle, spin_radius)
 }
 
+// assumes that you've already generated the slider path using generate_slider_path as needed.
+// try to avoid regenreating comlex sliders over and over again
 get_position_on_object :: proc(
     hit_object: osu.HitObject,
     beatmap_time: f64,
     circle_radius: f32,
-    slider_path_buffer, slider_path_buffer_temp: ^[dynamic]osu.Vec2,
+    slider_path_buffer: ^[dynamic]osu.Vec2,
 ) -> (
     osu.Vec2,
     bool,
@@ -59,14 +61,6 @@ get_position_on_object :: proc(
         angle := get_spinner_angle(hit_object, beatmap_time)
         return get_spinner_cursor_pos(angle), true
     case .Slider:
-        osu.generate_slider_path(
-            hit_object.slider_nodes,
-            slider_path_buffer,
-            slider_path_buffer_temp,
-            hit_object.slider_length,
-            SLIDER_LOD,
-        )
-
         pos, _, _ := osu.get_slider_ball_pos(slider_path_buffer^, hit_object, beatmap_time)
         return pos + stack_offset, true
     }
@@ -110,40 +104,55 @@ get_end_position_on_object :: proc(hit_object: osu.HitObject, circle_radius: f32
 }
 
 
-// this is my recreation of what I think the AUTO mod is doing
-get_cursor_pos_default_algorithm :: proc(
+// this is my recreation of what I think the AUTO mod is doing.
+get_cursor_pos_automod_ai :: proc(
     beatmap: ^osu.Beatmap,
     t: f64,
     slider_path_buffer, slider_path_buffer_temp: ^[dynamic]osu.Vec2,
+    last_generated_slider: ^int,
     circle_radius: f32,
     seek_from: int,
-) -> (
-    osu.Vec2,
-    bool,
-) {
-    current_object, _ := beatmap_get_current_object(beatmap, t, seek_from)
-    i := current_object
-
+) -> osu.Vec2 {
     hit_objects := beatmap.hit_objects
+
+    default_pos := osu.Vec2{PLAYFIELD_WIDTH / 2, PLAYFIELD_HEIGHT / 2}
+    if len(hit_objects) == 0 {
+        return default_pos
+    }
+
+    i, _ := beatmap_get_current_object(beatmap, t, seek_from)
+    if i >= len(hit_objects) {
+        i = len(hit_objects) - 1
+    }
 
     curr := hit_objects[i]
     curr_pos := curr.start_position + osu.get_hit_object_stack_offset(curr, circle_radius)
 
     isBetweenObjects := i > 0 && t > curr.start_time
     if isBetweenObjects {
-        pos, ok := get_position_on_object(
-            curr,
-            t,
-            circle_radius,
-            slider_path_buffer,
-            slider_path_buffer_temp,
-        )
+        if curr.type == .Slider && last_generated_slider^ != i {
+            osu.generate_slider_path(
+                curr.slider_nodes,
+                slider_path_buffer,
+                slider_path_buffer_temp,
+                curr.slider_length,
+                SLIDER_LOD,
+            )
 
-        return pos, ok
+            last_generated_slider^ = i
+        }
+
+        pos, ok := get_position_on_object(curr, t, circle_radius, slider_path_buffer)
+
+        if ok {
+            return pos
+        }
+
+        return default_pos
     }
 
     if i == 0 && len(hit_objects) > 0 {
-        return curr_pos, true
+        return curr_pos
     }
 
     if i > 0 {
@@ -153,9 +162,14 @@ get_cursor_pos_default_algorithm :: proc(
             curr_pos := get_start_position_on_object(curr, circle_radius)
 
             t := inv_lerp(prev.end_time, curr.start_time, t)
-            return linalg.lerp(prev_pos, curr_pos, f32(t)), true
+            return linalg.lerp(prev_pos, curr_pos, f32(t))
         }
     }
 
-    return {}, false
+    return default_pos
+}
+
+
+analyze_ai :: proc() {
+
 }

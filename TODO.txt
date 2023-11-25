@@ -8,6 +8,7 @@ TODO:
 - General issues
     - [] song playback desyncs if I scroll far enough, not sure why :(
         - 
+    - [] the slider head should disappear after I've clicked it. I am currently rendering the slider as one thing, but the head and body will need to disappear separately
 
 
 - Combo-colours
@@ -44,6 +45,6 @@ TODO:
     - [] load and use the beatmap hitsounds
 
 - AI cursor
-    - [] osu! auto mod movement
+    - [x] osu! auto mod movement
     - [] more natural looking osu AI movement
 
