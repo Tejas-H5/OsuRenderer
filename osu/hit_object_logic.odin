@@ -68,7 +68,7 @@ recalculate_object_end_position :: proc(
     hit_object := beatmap.hit_objects[i]
     switch hit_object.type {
     case .Spinner:
-        beatmap.hit_objects[i].position = {-100, -100}
+        beatmap.hit_objects[i].start_position = {-100, -100}
         beatmap.hit_objects[i].end_position = {-100, -100}
     case .Slider:
         generate_slider_path(
@@ -84,14 +84,14 @@ recalculate_object_end_position :: proc(
                 slider_path_buffer_main[len(slider_path_buffer_main) - 1]
         }
     case .Circle:
-        beatmap.hit_objects[i].end_position = beatmap.hit_objects[i].position
+        beatmap.hit_objects[i].end_position = beatmap.hit_objects[i].start_position
     }
 }
 
 // call calculate_object_end_time on the object at least once beforehand
 calculate_opacity :: proc(
-    hit_object: HitObject,
     beatmap: ^Beatmap,
+    hit_object: HitObject,
     current_time, fade_in, fade_out: f64,
 ) -> f32 {
     zero: f64 = 0

@@ -42,36 +42,50 @@ set_beatmap_view_error :: proc(msg: string, audio_err: audio.AudioError) {
 
 SLIDER_LOD :: 10
 
-draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64) {
+
+OSU_WIDTH :: 512
+OSU_HEIGHT :: 384
+osu_to_view :: proc(pos: af.Vec2) -> af.Vec2 {
+    x := pos.x
+    y := pos.y
+    return {af.vw() * f32(x) / OSU_WIDTH, af.vh() * (1 - f32(y) / OSU_HEIGHT)}
+}
+
+osu_to_view_dir :: proc(dir: af.Vec2) -> af.Vec2 {
+    return osu_to_view(dir) - osu_to_view({0, 0})
+}
+
+draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64, opacity: f32) {
     // TODO: move
     hit_object := beatmap.hit_objects[index]
     original_layout_rect := af.layout_rect
-
-    opacity := osu.calculate_opacity(hit_object, beatmap, beatmap_time, fade_in, fade_in)
 
     af.set_draw_params()
 
     if hit_object.type == .Spinner {
         // TODO: draw fan
 
-        spinner_radius := min(af.vw(), af.vh()) / 2 - 20
+        spinner_radius_max := min(af.vw(), af.vh()) / 2 - 20
+        total := hit_object.end_time - hit_object.start_time
+        elapsed := beatmap_time - hit_object.start_time
+        t := clamp01(f32(elapsed / total))
+        spinner_radius := math.lerp(spinner_radius_max, f32(0), t)
 
-        af.set_draw_color({1, 1, 1, 1})
-        af.draw_circle_outline(af.im, {af.vw() / 2, af.vh() / 2}, spinner_radius, 64, 20)
+        // make the spinnner stop spinning 1 second before the duration. cause it looks cool
+        // TODO: remove this code, and make it driven by user spinning input
+        spinner_angle := (477 / 60 * min(elapsed, total - 1)) * math.TAU
+
+        af.set_draw_color({1, 1, 1, opacity})
+        center := af.Vec2{af.vw() / 2, af.vh() / 2}
+        af.draw_circle_outline(af.im, center, spinner_radius, 64, 20 * t)
+
+        blade_size := spinner_radius_max / 2
+        spinner_blade_vec := angle_vec(f32(spinner_angle), blade_size)
+        af.draw_line(af.im, center, center + spinner_blade_vec, 50, .Circle)
+        af.draw_line(af.im, center, center - spinner_blade_vec, 50, .Circle)
+
         return
     }
-
-
-    osu_to_view :: proc(pos: af.Vec2) -> af.Vec2 {
-        x := pos.x
-        y := pos.y
-        return {af.vw() * f32(x) / 512, af.vh() * (1 - f32(y) / 384)}
-    }
-
-    osu_to_view_dir :: proc(dir: af.Vec2) -> af.Vec2 {
-        return osu_to_view(dir) - osu_to_view({0, 0})
-    }
-
 
     circle_radius_osu := osu.get_circle_radius(beatmap)
     circle_radius := osu_to_view_dir({circle_radius_osu, 0}).x
@@ -80,7 +94,8 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
     // stack_offset_amount is the stack offset from https://gist.github.com/peppy/1167470
     // NOTE(peppy): ymmv
     stack_offset_osu := (circle_radius_osu / 10) * af.Vec2{1, 1}
-    circle_pos := osu_to_view(osu.get_hit_object_stacked_position(hit_object, circle_radius_osu))
+    stack_offset_vec := osu.get_hit_object_stack_offset(hit_object, circle_radius_osu)
+    circle_pos := osu_to_view(hit_object.start_position + stack_offset_vec)
 
     if hit_object.type == .Slider {
         // draw slider body
@@ -201,10 +216,6 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
             }
 
             draw_slider_repeat_arrow :: proc(start, start_plus_dir: af.Vec2, circle_radius: f32) {
-                angle_vec :: proc(angle, size: f32) -> af.Vec2 {
-                    return size * af.Vec2{math.cos(angle), math.sin(angle)}
-                }
-
                 thickness_percent :: 0.15
                 arrow_wing_percent :: 0.3
 
@@ -289,17 +300,51 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
             )
         }
     }
+}
 
-    // if hit_object.type == .Slider {
-    // text := fmt.tprintf("cost: %v", len(slider_path_buffer))
-    // af.set_draw_color({0, 1, 0, 1})
-    // af.draw_font_text(af.im, source_code_pro_regular, text, 32, circle_pos)
-    // }
+draw_hit_objects :: proc(beatmap: ^osu.Beatmap, first, last: int, preempt, fade_in: f64) {
+    for i := last; i >= first; i -= 1 {
+        opacity := osu.calculate_opacity(
+            beatmap,
+            beatmap.hit_objects[i],
+            beatmap_time,
+            fade_in,
+            fade_in,
+        )
+
+        // draw follow point
+        if i < len(beatmap.hit_objects) - 1 && beatmap.hit_objects[i + 1].combo_number != 1 {
+            opacity_next := osu.calculate_opacity(
+                beatmap,
+                beatmap.hit_objects[i + 1],
+                beatmap_time,
+                fade_in,
+                fade_in,
+            )
+
+            min_opacity :: 0.3
+            opacity_followpoint := max(
+                0,
+                min(min(opacity - min_opacity, opacity_next - min_opacity), min_opacity),
+            )
+
+            p0 := beatmap.hit_objects[i].end_position
+            p1 := beatmap.hit_objects[i + 1].start_position
+            p0p1_dir := linalg.normalize(p1 - p0)
+            circle_radius_osu := osu.get_circle_radius(beatmap)
+            p0 += (p0p1_dir * circle_radius_osu)
+            p1 -= (p0p1_dir * circle_radius_osu)
+
+            af.set_draw_params(color = {1, 1, 1, opacity_followpoint})
+            af.draw_line(af.im, osu_to_view(p0), osu_to_view(p1), 1, .None)
+        }
+
+        draw_hit_object(beatmap, i, preempt, fade_in, opacity)
+    }
 }
 
 draw_osu_beatmap :: proc(beatmap: ^osu.Beatmap) {
     preempt := f64(osu.get_preempt(beatmap))
-    fade_in := f64(osu.get_fade_in(beatmap))
 
     // playback input
     scroll_speed: f64 = 0.25 * (preempt)
@@ -349,42 +394,61 @@ draw_osu_beatmap :: proc(beatmap: ^osu.Beatmap) {
         af.set_rect_height(&rect, rect.width * 3 / 4, 0.5)
     }
     af.set_layout_rect(rect)
-
-    // ---- draw the objects
-
     af.set_draw_params(color = af.Color{1, 0, 0, 1}, texture = nil)
     af.draw_rect_outline(af.im, {0, 0, af.vw(), af.vh()}, 4)
+
+    fade_in := f64(osu.get_fade_in(beatmap))
 
     t0 := beatmap_time - preempt
     t1 := beatmap_time + fade_in
 
     beatmap_first_visible = osu.beatmap_get_first_visible(beatmap, t0, beatmap_first_visible)
     beatmap_last_visible := osu.beatmap_get_last_visible(beatmap, t1, beatmap_first_visible)
-    for i := beatmap_last_visible; i >= beatmap_first_visible; i -= 1 {
-        draw_hit_object(beatmap, i, preempt, fade_in)
-    }
 
-    af.set_draw_color(color = af.Color{1, 0, 0, 1})
+    draw_hit_objects(beatmap, beatmap_first_visible, beatmap_last_visible, preempt, fade_in)
 
-    draw_debug_text :: proc(text: string, x: f32) -> f32 {
-        res := af.draw_font_text(af.im, source_code_pro_regular, text, 32, {x, af.vh() - 32})
-
-        padding :: 0
-        return x + res.width + padding
-    }
-
-    x := draw_debug_text(fmt.tprintf("%v <- %v -> %v", t0, beatmap_time, t1), 0)
-    x = draw_debug_text(
-        fmt.tprintf(
-            " | objects %v to %v of %v",
+    // draw AI cursor
+    {
+        circle_radius_osu := osu.get_circle_radius(beatmap)
+        cursor_pos_osu, ok := get_cursor_pos_default_algorithm(
+            beatmap,
+            beatmap_time,
+            &slider_path_buffer,
+            &slider_path_buffer_temp,
+            circle_radius_osu,
             beatmap_first_visible,
-            beatmap_last_visible,
-            len(beatmap.hit_objects),
-        ),
-        x,
-    )
-    if seek_debounce_timer > 0 {
-        x = draw_debug_text(fmt.tprintf(" | %vs till reseek", seek_debounce_timer), x)
+        )
+        if ok {
+            cursor_pos := osu_to_view(cursor_pos_osu)
+            cursor_size := osu_to_view_dir({10, 0}).x
+            af.set_draw_params(color = {0.5, 1, 0.5, 1})
+            af.draw_circle(af.im, cursor_pos, cursor_size, 64)
+        }
+    }
+
+    // debug code
+    {
+        draw_debug_text :: proc(text: string, x: f32) -> f32 {
+            res := af.draw_font_text(af.im, source_code_pro_regular, text, 32, {x, af.vh() - 32})
+
+            padding :: 0
+            return x + res.width + padding
+        }
+
+        af.set_draw_color(color = af.Color{1, 0, 0, 1})
+        x := draw_debug_text(fmt.tprintf("%v <- %v -> %v", t0, beatmap_time, t1), 0)
+        x = draw_debug_text(
+            fmt.tprintf(
+                " | objects %v to %v of %v",
+                beatmap_first_visible,
+                beatmap_last_visible,
+                len(beatmap.hit_objects),
+            ),
+            x,
+        )
+        if seek_debounce_timer > 0 {
+            x = draw_debug_text(fmt.tprintf(" | %vs till reseek", seek_debounce_timer), x)
+        }
     }
 }
 

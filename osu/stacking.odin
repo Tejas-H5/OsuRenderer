@@ -44,7 +44,7 @@ recalculate_stack_counts :: proc(beatmap: ^Beatmap) {
          * Any other case is handled by the "is Slider" code below this.
          */
         if (objects[i].type == .Circle) {
-            i2 := i
+            last_this_stack := i
             for n > 0 {
                 n -= 1
 
@@ -54,7 +54,7 @@ recalculate_stack_counts :: proc(beatmap: ^Beatmap) {
 
                 // HitObjectSpannable spanN = objects[n] as HitObjectSpannable;
                 preempt := get_preempt(beatmap)
-                if (objects[i2].start_time - f64(preempt * beatmap.StackLeniency) >
+                if (objects[last_this_stack].start_time - f64(preempt * beatmap.StackLeniency) >
                        objects[n].end_time) {
                     //We are no longer within stacking range of the previous object.
                     break
@@ -66,12 +66,14 @@ recalculate_stack_counts :: proc(beatmap: ^Beatmap) {
                  *         o <- hitCircle has stack of -2
                  */
                 if objects[n].type == .Slider &&
-                   (linalg.length(objects[n].end_position - objects[i2].position) <
+                   (linalg.length(
+                               objects[n].end_position - objects[last_this_stack].start_position,
+                           ) <
                            STACK_LENIENCE) {
-                    offset := objects[i2].stack_count - objects[n].stack_count + 1
+                    offset := objects[last_this_stack].stack_count - objects[n].stack_count + 1
                     for j in n + 1 ..= i {
                         //For each object which was declared under this slider, we will offset it to appear *below* the slider end (rather than above).
-                        if linalg.length(objects[n].end_position - objects[j].position) <
+                        if linalg.length(objects[n].end_position - objects[j].start_position) <
                            STACK_LENIENCE {
                             objects[j].stack_count -= offset
                         }
@@ -82,19 +84,22 @@ recalculate_stack_counts :: proc(beatmap: ^Beatmap) {
                     break
                 }
 
-                if (linalg.length(objects[n].position - objects[i2].position) < STACK_LENIENCE) {
+                if (linalg.length(
+                           objects[n].start_position - objects[last_this_stack].start_position,
+                       ) <
+                       STACK_LENIENCE) {
                     //Keep processing as if there are no sliders.  If we come across a slider, this gets cancelled out.
                     //NOTE: Sliders with start positions stacking are a special case that is also handled here.
 
-                    objects[n].stack_count = objects[i2].stack_count + 1
-                    i2 = n
+                    objects[n].stack_count = objects[last_this_stack].stack_count + 1
+                    last_this_stack = n
                 }
             }
         } else if (objects[i].type == .Slider) {
             /* We have hit the first slider in a possible stack.
              * From this point on, we ALWAYS stack positive regardless.
              */
-            i2 := i
+            last_this_stack := i
             for (n > 0) {
                 n -= 1
 
@@ -104,24 +109,27 @@ recalculate_stack_counts :: proc(beatmap: ^Beatmap) {
 
 
                 preempt := get_preempt(beatmap)
-                if (objects[i2].start_time - f64(preempt * beatmap.StackLeniency) >
+                if (objects[last_this_stack].start_time - f64(preempt * beatmap.StackLeniency) >
                        objects[n].end_time) {
                     //We are no longer within stacking range of the previous object.
                     break
                 }
 
-                if (linalg.length(objects[n].end_position - objects[i2].position) <
+                if (linalg.length(
+                           objects[n].end_position - objects[last_this_stack].start_position,
+                       ) <
                        STACK_LENIENCE) {
-                    objects[n].stack_count = objects[i2].stack_count + 1
-                    i2 = n
+                    objects[n].stack_count = objects[last_this_stack].stack_count + 1
+                    last_this_stack = n
                 }
             }
         }
     }
 }
 
+
 // This only works if you have already ran calculate_stack_counts on the beatmap
-get_hit_object_stacked_position :: proc(hit_object: HitObject, circle_radius: f32) -> Vec2 {
+get_hit_object_stack_offset :: proc(hit_object: HitObject, circle_radius: f32) -> Vec2 {
     stack_offset := (circle_radius / 10) * Vec2{1, 1}
-    return hit_object.position - (f32(hit_object.stack_count) * stack_offset)
+    return -(f32(hit_object.stack_count) * stack_offset)
 }

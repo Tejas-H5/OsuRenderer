@@ -8,9 +8,6 @@ TODO:
 - General issues
     - [] song playback desyncs if I scroll far enough, not sure why :(
         - 
-    - [] Stacks not working for triples for some reason. 
-    - [] stacks ont 
-
 
 
 - Combo-colours
@@ -20,8 +17,10 @@ TODO:
     - [x] slider bodies
     - [x] object stacking https://osu.ppy.sh/wiki/en/Beatmap/Stack_leniency
         - [x] end_position, end_time for all the sliders. 
-    - [] followpoints ...
-    - [] combo numbers ...
+    - [x] followpoints
+        - [] followpoint animations
+    - [x] combo numbers
+        - [] non-jagged text rendering
     - [x] slider snaking animation working through bugs
         - [x] code support 
     - [] slider un-snaking animation ...
@@ -31,7 +30,7 @@ TODO:
         - [] animations for repeat arrows
     - spinners
         - [x] outline
-        - [] spin animation
+        - [x] spin animation
     - combo colours
         - [] basic support
         - [] load them from the beatmap

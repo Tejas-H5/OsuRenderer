@@ -51,7 +51,7 @@ init :: proc() {
     af.maximize_window()
     af.show_window()
 
-    source_code_pro_regular = af.new_font("./res/SourceCodePro-Regular.ttf", 32)
+    source_code_pro_regular = af.new_font("./res/SourceCodePro-Regular.ttf", 64)
 
     // initialize the beatmap view
     slider_framebuffer_texture = af.new_texture_from_size(1, 1)
