@@ -545,7 +545,8 @@ get_circle_radius :: proc(beatmap: ^Beatmap) -> f32 {
         r = 54.4 - 4.48 * CS
     */
 
-    return 54.4 - 4.48 * beatmap.CircleSize
+    // the 0.5 is because it was looking wrong, so I changed it. am still not sure why it wasn't the same size
+    return 54.4 - 4.48 * (beatmap.CircleSize + 0.5)
 }
 
 

@@ -82,9 +82,8 @@ get_slider_ball_pos :: proc(
     start_time := slider.start_time
     end_time := slider.end_time
 
-    if current_time <= start_time {
-        current_repeat = 1
-        return
+    if current_time < start_time {
+        return slider.start_position, 1, false
     }
 
     if current_time >= end_time {
@@ -124,6 +123,10 @@ get_slider_ball_pos :: proc(
         slider_ball_pos = p0
         found = true
         break
+    }
+
+    if !found {
+        slider_ball_pos = slider.end_position
     }
 
     return slider_ball_pos, current_repeat, found
