@@ -64,26 +64,24 @@ parse_key_value_pair :: proc(line: string) -> (string, string, bool) {
     return key, value, true
 }
 
-parse_lines_iterator :: proc(text: string, pos: ^int) -> (string, bool) {
-    start := pos^
-    if start < 0 || start >= len(text) {
+parse_lines_iterator :: proc(text: ^string) -> (string, bool) {
+    res, ok := strings.split_iterator(text, "\n")
+    if ok && len(strings.trim_space(res)) == 0 {
         return "", false
     }
 
-    if text[start] == '\n' {
-        start += 1
-    }
-    start = next_index_of_proc(text, strings.is_space, false, start, if_not_found = len(text))
-    end_of_line := next_index_of(text, "\n", start, if_not_found = len(text))
-
-    if strings.trim_space(text[start:end_of_line]) == "" {
-        return "", false
-    }
-
-    pos^ = end_of_line
-    return text[start:end_of_line], true
+    return res, ok
 }
 
+get_section_remaining_line_count :: proc(text: string) -> int {
+    text := text
+    line_count := 0
+    for line in parse_lines_iterator(&text) {
+        line_count += 1
+    }
+
+    return line_count
+}
 
 Beatmap :: struct {
     text:              string,
@@ -184,9 +182,9 @@ SliderNode :: struct {
     type: SliderNodeType,
 }
 
-parse_timing_point :: proc(str: string) -> TimingPoint {
+parse_timing_point :: proc(str_orig: string) -> TimingPoint {
     tp := TimingPoint{}
-    str := str
+    str := str_orig
 
 
     time_str, _ := strings.split_iterator(&str, ",")
@@ -214,6 +212,10 @@ parse_timing_point :: proc(str: string) -> TimingPoint {
     } else {
         tp.bpm = -1
         tp.sv = -100.0 / tp.beat_length
+
+        if (tp.sv < 0) {
+            af.debug_fatal_error("somethig not right here bro - %v", str_orig)
+        }
     }
 
     return tp
@@ -226,23 +228,23 @@ BeatmapLoadError :: enum {
 }
 
 // NOTE: read https://osu.ppy.sh/wiki/en/osu%21_File_Formats/Osu_%28file_format%29 to understand this code, I basically translated that verbatim
-parse_section :: proc(text: string, pos: int, beatmap: ^Beatmap) -> (int, bool) {
-    pos := pos
-    pos = next_index_of(text, "[", pos)
-    if pos == -1 {
-        return pos, false
+parse_section :: proc(text: ^string, beatmap: ^Beatmap) -> bool {
+    text^ = strings.trim_left_proc(text^, proc(r: rune) -> bool {
+        return r != '['
+    })
+    header_line, _ := strings.split_iterator(text, "\n")
+    if !strings.contains(header_line, "[") {
+        text^ = text[len(text):len(text)]
+        return true
     }
 
-    end := next_index_of(text, "]", pos + 1)
-    if end == -1 {
-        return pos, false
-    }
+    section_name := strings.trim_space(header_line)
+    section_name = section_name[1:len(section_name) - 1]
 
-    section_name := text[pos + 1:end]
-    pos = next_index_of_proc(text, strings.is_space, false, end + 1, if_not_found = len(text))
+    text^ = strings.trim_left_space(text^)
     switch (section_name) {
     case "General":
-        for line in parse_lines_iterator(text, &pos) {
+        for line in parse_lines_iterator(text) {
             k, v, _ := parse_key_value_pair(line)
             switch k {
             case "AudioFilename":
@@ -254,7 +256,7 @@ parse_section :: proc(text: string, pos: int, beatmap: ^Beatmap) -> (int, bool) 
             }
         }
     case "Metadata":
-        for line in parse_lines_iterator(text, &pos) {
+        for line in parse_lines_iterator(text) {
             k, v, _ := parse_key_value_pair(line)
             switch k {
             case "TitleUnicode":
@@ -270,7 +272,7 @@ parse_section :: proc(text: string, pos: int, beatmap: ^Beatmap) -> (int, bool) 
             }
         }
     case "Difficulty":
-        for line in parse_lines_iterator(text, &pos) {
+        for line in parse_lines_iterator(text) {
             k, v, _ := parse_key_value_pair(line)
             switch k {
             case "ApproachRate":
@@ -286,7 +288,7 @@ parse_section :: proc(text: string, pos: int, beatmap: ^Beatmap) -> (int, bool) 
     case "Editor":
     //TODO: load editor settings if we ever want to fully implement the editor
     case "Events":
-        for line in parse_lines_iterator(text, &pos) {
+        for line in parse_lines_iterator(text) {
             line := line
             str, _ := strings.split_iterator(&line, ",")
             if str == "0" {
@@ -296,29 +298,19 @@ parse_section :: proc(text: string, pos: int, beatmap: ^Beatmap) -> (int, bool) 
             }
         }
     case "TimingPoints":
-        init_pos := pos
-        line_count := 0
-        for line in parse_lines_iterator(text, &pos) {
-            line_count += 1
-        }
+        line_count := get_section_remaining_line_count(text^)
         beatmap.timing_points = make([]TimingPoint, line_count)
-        pos = init_pos
 
         for i in 0 ..< len(beatmap.timing_points) {
-            line, _ := parse_lines_iterator(text, &pos)
+            line, _ := parse_lines_iterator(text)
             beatmap.timing_points[i] = parse_timing_point(line)
         }
     case "Colours":
-        init_pos := pos
-        line_count := 0
-        for line in parse_lines_iterator(text, &pos) {
-            line_count += 1
-        }
+        line_count := get_section_remaining_line_count(text^)
         beatmap.combo_colors = make([]ComboColor, line_count)
-        pos = init_pos
 
         for line_count in 0 ..< len(beatmap.combo_colors) {
-            line, _ := parse_lines_iterator(text, &pos)
+            line, _ := parse_lines_iterator(text)
             k, v, _ := parse_key_value_pair(line)
             if !strings.has_prefix(k, "Combo") {
                 continue
@@ -339,16 +331,11 @@ parse_section :: proc(text: string, pos: int, beatmap: ^Beatmap) -> (int, bool) 
             }
         }
     case "HitObjects":
-        init_pos := pos
-        line_count := 0
-        for line in parse_lines_iterator(text, &pos) {
-            line_count += 1
-        }
+        line_count := get_section_remaining_line_count(text^)
         beatmap.hit_objects = make([]HitObject, line_count)
-        pos = init_pos
 
         for i in 0 ..< len(beatmap.hit_objects) {
-            line, _ := parse_lines_iterator(text, &pos)
+            line, _ := parse_lines_iterator(text)
             hit_object, ok := parse_hit_object(line)
             beatmap.hit_objects[i] = hit_object
             if !ok {
@@ -359,9 +346,9 @@ parse_section :: proc(text: string, pos: int, beatmap: ^Beatmap) -> (int, bool) 
         af.debug_log("NOTE: unhandled section in osu beatmap '%s'", section_name)
     }
 
-    pos = next_index_of(text, "[", pos, if_not_found = len(text))
-    return pos, true
+    return true
 }
+
 
 parse_hit_object :: proc(line: string) -> (HitObject, bool) {
     line := line
@@ -524,9 +511,9 @@ new_osu_beatmap :: proc(filepath: string) -> ^Beatmap {
     // parse the file into objects
     beatmap: Beatmap
     beatmap.text = string(data)
-    pos := 0
-    for pos < len(beatmap.text) {
-        pos, ok = parse_section(beatmap.text, pos, &beatmap)
+    data_slice := beatmap.text[:]
+    for len(data_slice) > 0 {
+        ok := parse_section(&data_slice, &beatmap)
         if !ok {
             af.debug_log("failed to parse a section")
             delete(data)
@@ -630,6 +617,7 @@ beatmap_get_last_visible :: proc(beatmap: ^Beatmap, t: f64, seek_from: int) -> i
     for i > 0 && beatmap.hit_objects[i].start_time > t {
         i -= 1
     }
+
     return i
 }
 
@@ -646,4 +634,17 @@ beatmap_get_new_combo_start :: proc(beatmap: ^Beatmap, hit_object_index: int) ->
     }
 
     return 0
+}
+
+// https://osu.ppy.sh/wiki/en/Beatmap/Overall_difficulty
+get_hit_window_300 :: proc(beatmap: ^Beatmap) -> f32 {
+    return 80 - 6 * beatmap.OverallDifficulty
+}
+
+get_hit_window_100 :: proc(beatmap: ^Beatmap) -> f32 {
+    return 140 - 8 * beatmap.OverallDifficulty
+}
+
+get_hit_window_50 :: proc(beatmap: ^Beatmap) -> f32 {
+    return 200 - 10 * beatmap.OverallDifficulty
 }

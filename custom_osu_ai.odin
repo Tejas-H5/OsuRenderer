@@ -183,6 +183,12 @@ AIReplay :: struct {
     replay:              [dynamic]osu.Vec2,
     replay_seek_from:    int,
     last_object_started: int,
+
+    // only used by functions that are physics-based.
+    velocity:            osu.Vec2,
+    last_spring_length:  f32,
+    spring_force:        f32,
+    slider_spring_force: f32,
 }
 
 get_replay_duration :: proc(replay: [dynamic]osu.Vec2) -> f64 {
@@ -320,6 +326,7 @@ cursor_motion_strategy_automod :: proc(
     return pos
 }
 
+
 // dont move from a particular spot unless we are going to stray too far away from automod.
 // The logic is very similar to how Blender's smooth stroke brush works
 cursor_strategy_lazy_position :: proc(
@@ -331,6 +338,36 @@ cursor_strategy_lazy_position :: proc(
     circle_radius: f32,
     seek_from: int,
 ) -> osu.Vec2 {
+    pos, _ := get_cursor_pos_smoothed_automod_ai(
+        ai_replay,
+        beatmap,
+        t,
+        slider_path_buffer,
+        slider_path_buffer_temp,
+        last_generated_slider,
+        circle_radius,
+        seek_from,
+        0.7,
+        2,
+    )
+    return pos
+}
+
+// dont move from a particular spot unless we are going to stray too far away from automod.
+// The logic is very similar to how Blender's smooth stroke brush works
+get_cursor_pos_smoothed_automod_ai :: proc(
+    ai_replay: ^AIReplay,
+    beatmap: ^osu.Beatmap,
+    t: f64,
+    slider_path_buffer, slider_path_buffer_temp: ^[dynamic]osu.Vec2,
+    last_generated_slider: ^int,
+    circle_radius: f32,
+    seek_from: int,
+    circle_slack, slider_slack: f32,
+) -> (
+    osu.Vec2,
+    int,
+) {
     required_position, idx := get_cursor_pos_automod_ai(
         beatmap,
         t,
@@ -343,11 +380,11 @@ cursor_strategy_lazy_position :: proc(
 
     current_position := ai_replay_last_pos(ai_replay)
 
-    SLACK :: 0.75
-    SLIDER_SLACK :: 1.5
+    dir := current_position - required_position
+    dir_len := linalg.length(dir)
 
     // only move if we have to, and only move as little as we need to
-    max_allowable_distance := (circle_radius * SLACK)
+    max_allowable_dir_len := (circle_radius * circle_slack)
 
     // the allowable distance should be larger when we are tracking a slider ball.
     // we also need to make this distance expand and then shrink back down in a continuous curve rather than a sudden step, so
@@ -366,34 +403,32 @@ cursor_strategy_lazy_position :: proc(
                 fade_in,
             )
 
-            max_allowable_distance = math.lerp(
-                (circle_radius * SLACK),
-                (circle_radius * SLIDER_SLACK),
+            max_allowable_dir_len = math.lerp(
+                (circle_radius * circle_slack),
+                (circle_radius * slider_slack),
                 f32(lerp_t),
             )
         }
     }
 
-    dir := current_position - required_position
-    dir_len := linalg.length(dir)
-
     if dir_len < 0.1 {
         // also, dir_len==0 causes all sorts of nan issues when normalizing
-        return current_position
+        return current_position, idx
     }
 
-    if dir_len < max_allowable_distance {
+    if dir_len < max_allowable_dir_len {
         // move a little closer to the center, while we're here
         CENTER_SPEED :: 15
         new_dir_len := move_towards(dir_len, 0, CENTER_SPEED * AI_REPLAY_DT)
-        return required_position + (linalg.normalize(dir) * new_dir_len)
+        return required_position + (linalg.normalize(dir) * new_dir_len), idx
     }
 
-    return required_position + (linalg.normalize(dir) * max_allowable_distance)
+    return required_position + (linalg.normalize(dir) * max_allowable_dir_len), idx
 }
 
 
-// cling to the current position with a large yet finite amount of force
+// Cling to the current position with a large yet finite amount of force.
+// Sliders and non-sliders can be calibrated to have different force amounts, to get more realistic paths
 cursor_strategy_spring_joint :: proc(
     ai_replay: ^AIReplay,
     beatmap: ^osu.Beatmap,
@@ -403,7 +438,18 @@ cursor_strategy_spring_joint :: proc(
     circle_radius: f32,
     seek_from: int,
 ) -> osu.Vec2 {
-    required_position, idx := get_cursor_pos_automod_ai(
+    // target_pos, idx := get_cursor_pos_automod_ai(
+    //     beatmap,
+    //     t,
+    //     slider_path_buffer,
+    //     slider_path_buffer_temp,
+    //     last_generated_slider,
+    //     circle_radius,
+    //     seek_from,
+    // )
+
+    target_pos, idx := get_cursor_pos_smoothed_automod_ai(
+        ai_replay,
         beatmap,
         t,
         slider_path_buffer,
@@ -411,12 +457,54 @@ cursor_strategy_spring_joint :: proc(
         last_generated_slider,
         circle_radius,
         seek_from,
+        0.3,
+        1.2,
     )
 
-    current_position := ai_replay_last_pos(ai_replay)
+    current_object := beatmap.hit_objects[idx]
+    spring_force := ai_replay.spring_force
+    if current_object.start_time < t {
+        fade_in :: 0.05
+        lerp_t := fade_in_fade_out_curve(
+            current_object.start_time,
+            current_object.end_time,
+            t,
+            fade_in,
+            fade_in,
+        )
 
-    // TODO
+        spring_force = math.lerp(
+            ai_replay.spring_force,
+            ai_replay.slider_spring_force,
+            f32(lerp_t),
+        )
+    }
 
+    v := ai_replay.velocity
+    current_pos := ai_replay_last_pos(ai_replay)
 
-    return current_position
+    // not sure how the damper fits here, actually
+
+    spring_vec := target_pos - current_pos
+    spring_length := linalg.length(spring_vec)
+    if spring_length < 0.0001 {
+        return current_pos
+    }
+
+    v = spring_vec * spring_force
+    accel := v - ai_replay.velocity
+
+    // intergate the velocity 
+
+    v += accel * AI_REPLAY_DT * 0.5
+    current_pos += v * AI_REPLAY_DT
+    v += accel * AI_REPLAY_DT * 0.5
+
+    ai_replay.velocity = v
+    ai_replay.last_spring_length = spring_length
+
+    current_pos.x = min(PLAYFIELD_WIDTH, max(0, current_pos.x))
+    current_pos.y = min(PLAYFIELD_HEIGHT, max(0, current_pos.y))
+
+    return current_pos
 }

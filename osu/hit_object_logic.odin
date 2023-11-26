@@ -13,7 +13,7 @@ recalculate_object_end_time :: proc(beatmap: ^Beatmap, hit_object_index: int) {
         last_sv_index := -1
         for i in 0 ..< len(beatmap.timing_points) - 1 {
             tp := beatmap.timing_points[i]
-            if tp.bpm > 0 {
+            if tp.is_bpm_change == 1 {
                 continue
             }
 
@@ -32,7 +32,7 @@ recalculate_object_end_time :: proc(beatmap: ^Beatmap, hit_object_index: int) {
         last_bpm_index := -1
         for i in 0 ..< len(beatmap.timing_points) - 1 {
             tp := beatmap.timing_points[i]
-            if tp.bpm < 0 {
+            if tp.is_bpm_change != 1 {
                 continue
             }
 
@@ -111,7 +111,7 @@ calculate_opacity :: proc(
     return f32(math.lerp(one, zero, t))
 }
 
-recalculate_combo_number :: proc(beatmap: ^Beatmap, starting_from: int) {
+recalculate_combo_numbers :: proc(beatmap: ^Beatmap, starting_from: int) {
     hit_objects := beatmap.hit_objects
 
     i := beatmap_get_new_combo_start(beatmap, starting_from)
@@ -134,7 +134,7 @@ recalculate_object_values :: proc(
     slider_path_buffer_main, slider_path_buffer_temp: ^[dynamic]Vec2,
     slider_lod: f32,
 ) {
-    recalculate_combo_number(beatmap, 0)
+    recalculate_combo_numbers(beatmap, 0)
     recalculate_object_end_time(beatmap, hit_object_index)
     recalculate_object_end_position(
         beatmap,
