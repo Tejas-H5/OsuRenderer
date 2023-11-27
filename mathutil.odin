@@ -2,6 +2,7 @@ package main
 
 import "af"
 import "core:math"
+import "core:math/linalg"
 
 clamp01 :: proc(f: f32) -> f32 {
     return max(0, min(1, f))
@@ -55,4 +56,32 @@ fade_in_fade_out_curve :: proc(t0, t1, t: f64, fade_in, fade_out: f64) -> f64 {
     }
 
     return 1
+}
+
+angle_between :: proc(a, b, c: af.Vec2) -> f32 {
+    v1 := a - b
+    v2 := c - b
+
+    angle_1 := math.atan2(v1.y, v1.x)
+    angle_2 := math.atan2(v2.y, v2.x)
+
+    res1 := angle_1 - angle_2
+    if abs(res1) <= math.PI {
+        return res1
+    }
+
+    if res1 < 0 {
+        res1 += math.TAU
+        return res1
+    }
+
+    res1 -= math.TAU
+    return res1
+}
+
+// solves for x when ax^2 + bx + c = 0. 
+quadratic_equation :: proc(a, b, c: f32) -> (f32, f32) {
+    sqrt_part := math.sqrt(b * b - 4 * a * c)
+
+    return (-b + sqrt_part) / (2 * a), (-b - sqrt_part) / (2 * a)
 }

@@ -5,6 +5,13 @@ Main objectives:
 
 TODO:
 
+- AI improvements
+    - the 'smoothing' AI should calculate a point on the 'inside' of the angle formed by p0p1p2, rather than the point that is closest.
+        also, it should check both the center of the circle, and the 'inside' point and choose whichever is closer. 
+    - 
+
+automod:
+
 - General issues
     - [] song playback desyncs if I scroll far enough, not sure why :(
         - 
@@ -12,7 +19,6 @@ TODO:
     - [] the AI shouldn't miss circles
     - [] we need a way to 'click' on the circles and stuff
     - [] we should use the normal appdata/local/osu/songs folder rather than whatever ours is. 
-
 
 - Combo-colours
 - Hit objects

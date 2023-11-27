@@ -105,7 +105,18 @@ vh :: proc() -> f32 {
 // render_fn should return true if the loop should continue for one more frame, and false if it shuold exit
 run_main_loop :: proc(render_fn: (proc() -> bool)) {
     window_render_fn = render_fn
-    for !window_should_close() && render_fn() {}
+    for !window_should_close() {
+        begin_frame()
+
+        res := render_fn()
+
+        free_all(context.temp_allocator)
+        end_frame()
+
+        if !res {
+            break
+        }
+    }
 }
 
 set_target_fps :: proc(fps: int) {

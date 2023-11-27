@@ -425,7 +425,7 @@ reset_ai_replays :: proc() {
 
 load_current_beatmap :: proc() {
     spring_joint_ai_replay.slider_spring_force = 17
-    spring_joint_ai_replay.spring_force = 80
+    spring_joint_ai_replay.spring_force = 50
 
     beatmap_time = 0
     wanted_music_time = 0
@@ -665,7 +665,7 @@ draw_beatmap_view :: proc() {
                 f32(CURSOR_ANALYSIS_AFTERIMAGES - i) / f32(CURSOR_ANALYSIS_AFTERIMAGES)
 
             for ai in ais {
-                pos := get_cursor_pos_for_replay_ai(
+                pos := get_ai_replay_cursor_pos(
                     ai.replay_state,
                     beatmap,
                     t,

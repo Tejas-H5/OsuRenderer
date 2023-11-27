@@ -39,13 +39,14 @@ get_spinner_cursor_pos :: proc(angle: f32) -> osu.Vec2 {
     return center + angle_vec(angle, spin_radius)
 }
 
-// assumes that you've already generated the slider path using generate_slider_path as needed.
-// try to avoid regenreating comlex sliders over and over again
+
 get_position_on_object :: proc(
     hit_object: osu.HitObject,
     beatmap_time: f64,
     circle_radius: f32,
-    slider_path_buffer: ^[dynamic]osu.Vec2,
+    slider_path_buffer, slider_path_buffer_temp: ^[dynamic]osu.Vec2,
+    last_generated_slider: ^int,
+    slider_id: int,
 ) -> (
     osu.Vec2,
     bool,
@@ -66,6 +67,18 @@ get_position_on_object :: proc(
         angle := get_spinner_angle(hit_object, beatmap_time)
         return get_spinner_cursor_pos(angle), true
     case .Slider:
+        if last_generated_slider^ != slider_id {
+            osu.generate_slider_path(
+                hit_object.slider_nodes,
+                slider_path_buffer,
+                slider_path_buffer_temp,
+                hit_object.slider_length,
+                SLIDER_LOD,
+            )
+
+            last_generated_slider^ = slider_id
+        }
+
         pos, _, _ := osu.get_slider_ball_pos(slider_path_buffer^, hit_object, beatmap_time)
         return pos + stack_offset, true
     }
@@ -110,13 +123,14 @@ get_end_position_on_object :: proc(hit_object: osu.HitObject, circle_radius: f32
 
 
 // this is my recreation of what I think the AUTO mod is doing.
-get_cursor_pos_automod_ai :: proc(
+get_expected_cursor_pos :: proc(
     beatmap: ^osu.Beatmap,
     t: f64,
     slider_path_buffer, slider_path_buffer_temp: ^[dynamic]osu.Vec2,
     last_generated_slider: ^int,
     circle_radius: f32,
     seek_from: int,
+    should_lerp_between_objects: bool = true,
 ) -> (
     osu.Vec2,
     int,
@@ -136,21 +150,16 @@ get_cursor_pos_automod_ai :: proc(
     curr := hit_objects[i]
     curr_pos := curr.start_position + osu.get_hit_object_stack_offset(curr, circle_radius)
 
-    if t > curr.start_time && t < curr.end_time {
-        if curr.type == .Slider && last_generated_slider^ != i {
-            osu.generate_slider_path(
-                curr.slider_nodes,
-                slider_path_buffer,
-                slider_path_buffer_temp,
-                curr.slider_length,
-                SLIDER_LOD,
-            )
-
-            last_generated_slider^ = i
-        }
-
-        pos, ok := get_position_on_object(curr, t, circle_radius, slider_path_buffer)
-
+    if curr.start_time <= t && t <= curr.end_time {
+        pos, ok := get_position_on_object(
+            curr,
+            t,
+            circle_radius,
+            slider_path_buffer,
+            slider_path_buffer_temp,
+            last_generated_slider,
+            slider_id = i,
+        )
         if ok {
             return pos, i
         }
@@ -158,19 +167,21 @@ get_cursor_pos_automod_ai :: proc(
         return default_pos, i
     }
 
-    if i == 0 && len(hit_objects) > 0 {
+    if i == 0 {
         return curr_pos, i
     }
 
-    if i > 0 {
-        prev := hit_objects[i - 1]
-        if t >= prev.end_time && t <= curr.start_time {
+    prev := hit_objects[i - 1]
+    if prev.end_time <= t && t <= curr.start_time {
+        if should_lerp_between_objects {
             prev_pos := get_end_position_on_object(prev, circle_radius)
             curr_pos := get_start_position_on_object(curr, circle_radius)
 
             t := inv_lerp(prev.end_time, curr.start_time, t)
             return linalg.lerp(prev_pos, curr_pos, f32(t)), i
         }
+
+        return curr_pos, i
     }
 
     return default_pos, i
@@ -206,8 +217,7 @@ CursorMotionStragetgyProc ::
             seek_from: int,
         ) -> osu.Vec2)
 
-// this is my recreation of what I think the AUTO mod is doing.
-get_cursor_pos_for_replay_ai :: proc(
+get_ai_replay_cursor_pos :: proc(
     ai_replay: ^AIReplay,
     beatmap: ^osu.Beatmap,
     t: f64,
@@ -230,7 +240,6 @@ get_cursor_pos_for_replay_ai :: proc(
     for AI_REPLAY_DT * f64(ai_replay.replay_seek_from) > t {
         ai_replay.replay_seek_from -= 1
     }
-
 
     // generate the rest of the replay as needed. if we have already generated what we need, then 
     // this just gets skipped. This is the only way to make a seekable physics-based replay (that I could think of)
@@ -313,7 +322,7 @@ cursor_motion_strategy_automod :: proc(
     seek_from: int,
 ) -> osu.Vec2 {
     // doesn't need a history of points to extrapolate itself, so it is very nice in that sense
-    pos, _ := get_cursor_pos_automod_ai(
+    pos, _ := get_expected_cursor_pos(
         beatmap,
         t,
         slider_path_buffer,
@@ -321,6 +330,7 @@ cursor_motion_strategy_automod :: proc(
         last_generated_slider,
         circle_radius,
         seek_from,
+        should_lerp_between_objects = true,
     )
 
     return pos
@@ -364,11 +374,12 @@ get_cursor_pos_smoothed_automod_ai :: proc(
     circle_radius: f32,
     seek_from: int,
     circle_slack, slider_slack: f32,
+    should_lerp_between_objects := true,
 ) -> (
     osu.Vec2,
     int,
 ) {
-    required_position, idx := get_cursor_pos_automod_ai(
+    required_position, idx := get_expected_cursor_pos(
         beatmap,
         t,
         slider_path_buffer,
@@ -376,6 +387,7 @@ get_cursor_pos_smoothed_automod_ai :: proc(
         last_generated_slider,
         circle_radius,
         seek_from,
+        should_lerp_between_objects = should_lerp_between_objects,
     )
 
     current_position := ai_replay_last_pos(ai_replay)
@@ -438,7 +450,7 @@ cursor_strategy_spring_joint :: proc(
     circle_radius: f32,
     seek_from: int,
 ) -> osu.Vec2 {
-    // target_pos, idx := get_cursor_pos_automod_ai(
+    // target_pos, idx := get_expected_cursor_pos(
     //     beatmap,
     //     t,
     //     slider_path_buffer,
@@ -446,6 +458,7 @@ cursor_strategy_spring_joint :: proc(
     //     last_generated_slider,
     //     circle_radius,
     //     seek_from,
+    //     should_lerp_between_objects = false,
     // )
 
     target_pos, idx := get_cursor_pos_smoothed_automod_ai(
@@ -458,12 +471,14 @@ cursor_strategy_spring_joint :: proc(
         circle_radius,
         seek_from,
         0.3,
-        1.2,
+        1,
+        should_lerp_between_objects = false,
     )
 
     current_object := beatmap.hit_objects[idx]
     spring_force := ai_replay.spring_force
     if current_object.start_time < t {
+        // on sliders, we should reduce our spring force
         fade_in :: 0.05
         lerp_t := fade_in_fade_out_curve(
             current_object.start_time,
@@ -491,20 +506,16 @@ cursor_strategy_spring_joint :: proc(
         return current_pos
     }
 
+    // NOTE: notice that that spring_vec is not normalized
     v = spring_vec * spring_force
     accel := v - ai_replay.velocity
 
-    // intergate the velocity 
-
-    v += accel * AI_REPLAY_DT * 0.5
-    current_pos += v * AI_REPLAY_DT
-    v += accel * AI_REPLAY_DT * 0.5
-
-    ai_replay.velocity = v
-    ai_replay.last_spring_length = spring_length
-
-    current_pos.x = min(PLAYFIELD_WIDTH, max(0, current_pos.x))
-    current_pos.y = min(PLAYFIELD_HEIGHT, max(0, current_pos.y))
-
+    integrate_motion(&v, &current_pos, accel, AI_REPLAY_DT)
     return current_pos
+}
+
+integrate_motion :: proc(vel, pos: ^osu.Vec2, accel: osu.Vec2, dt: f32) {
+    vel^ += accel * dt
+    pos^ += vel^ * dt
+    vel^ += accel * dt
 }
