@@ -17,10 +17,6 @@ wanted_music_time: f64 = 0
 
 beatmap_first_visible: int
 
-slider_path_buffer := [dynamic]af.Vec2{}
-slider_path_buffer_temp := [dynamic]af.Vec2{}
-last_generated_slider: int
-
 slider_framebuffer: ^af.Framebuffer
 slider_framebuffer_texture: ^af.Texture
 
@@ -174,18 +170,9 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
             slider_end_length = t * hit_object.slider_length
         }
 
-        // The main slider body. 
-        // TODO: get this fully working
-        osu.generate_slider_path(
-            hit_object.slider_nodes,
-            &slider_path_buffer,
-            &slider_path_buffer_temp,
-            slider_end_length,
-            SLIDER_LOD,
-        )
-
-        if len(slider_path_buffer) >= 2 {
+        if len(hit_object.slider_path) >= 2 {
             // draw slider end
+            slider_path_buffer := hit_object.slider_path
             slider_end_pos := slider_path_buffer[len(slider_path_buffer) - 1]
             af.set_draw_params(color = af.Color{1, 1, 1, 1 * opacity}, texture = nil)
             af.draw_circle_outline(af.im, circle_pos, circle_radius - thickness, 64, thickness)
@@ -199,6 +186,7 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
             af.set_framebuffer(slider_framebuffer)
             af.clear_screen({0, 0, 0, 0})
             stroke_slider_path :: proc(
+                slider_path_buffer: [dynamic]af.Vec2,
                 thickness: f32,
                 slider_end_length: f32,
                 stack_offset: af.Vec2,
@@ -220,13 +208,19 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
             af.clear_stencil()
             af.set_draw_color(color = af.Color{.2, .2, .2, 0.5})
             stroke_slider_path(
+                slider_path_buffer,
                 (circle_radius - thickness) * 2,
                 slider_end_length,
                 stack_offset_vec,
             )
             af.set_stencil_mode(.DrawOverZeroes)
             af.set_draw_color(color = af.Color{1, 1, 1, 1})
-            stroke_slider_path(circle_radius * 2, slider_end_length, stack_offset_vec)
+            stroke_slider_path(
+                slider_path_buffer,
+                circle_radius * 2,
+                slider_end_length,
+                stack_offset_vec,
+            )
             af.set_stencil_mode(.Off)
 
             af.set_framebuffer(nil)
@@ -236,7 +230,6 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
             af.set_layout_rect(original_layout_rect, false)
             // slider ball
             slider_ball_osu_pos, repeat, has_slider_ball := osu.get_slider_ball_pos(
-                slider_path_buffer,
                 hit_object,
                 beatmap_time,
             )
@@ -445,13 +438,8 @@ load_current_beatmap :: proc() {
     // initialize the beatmap. 
     // TODO: may need to move this code to a better place if we ever want to add an editor, but that is unlikely at this stage
     for i in 0 ..< len(beatmap.hit_objects) {
-        osu.recalculate_object_values(
-            beatmap,
-            i,
-            &slider_path_buffer,
-            &slider_path_buffer_temp,
-            SLIDER_LOD,
-        )
+        osu.recalculate_slider_path(beatmap, i, SLIDER_LOD)
+        osu.recalculate_object_values(beatmap, i, SLIDER_LOD)
     }
 
     osu.recalculate_stack_counts(beatmap)
@@ -515,7 +503,7 @@ draw_beatmap_view :: proc() {
 
     af.set_layout_rect(layout_playfield)
     draw_osu_beatmap(&beatmap_info)
-    draw_ai_cursors(ais)
+    // draw_ai_cursors(ais)
 
     af.set_layout_rect(layout_ui)
     draw_info_panel(beatmap_info, ais)
@@ -669,9 +657,6 @@ draw_beatmap_view :: proc() {
                     ai.replay_state,
                     beatmap,
                     t,
-                    &slider_path_buffer,
-                    &slider_path_buffer_temp,
-                    &last_generated_slider,
                     circle_radius_osu,
                     beatmap_first_visible,
                     ai.ai_fn,

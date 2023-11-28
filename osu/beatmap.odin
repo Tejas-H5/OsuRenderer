@@ -121,6 +121,7 @@ free_beatmap :: proc(beatmap: ^Beatmap) {
 
 free_hitobject :: proc(hitobject: ^HitObject) {
     delete(hitobject.slider_nodes)
+    delete(hitobject.slider_path)
 }
 
 TimingPoint :: struct {
@@ -166,6 +167,7 @@ HitObject :: struct {
     stack_count:        int,
     end_position:       Vec2,
     combo_number:       int,
+    slider_path:        [dynamic]Vec2,
 }
 
 SliderNodeType :: enum {

@@ -3,6 +3,7 @@ package osu
 import "../af"
 import "core:math"
 
+slider_path_buffer_temp := [dynamic]af.Vec2{}
 
 recalculate_object_end_time :: proc(beatmap: ^Beatmap, hit_object_index: int) {
     hit_object := beatmap.hit_objects[hit_object_index]
@@ -59,30 +60,15 @@ recalculate_object_end_time :: proc(beatmap: ^Beatmap, hit_object_index: int) {
     }
 }
 
-recalculate_object_end_position :: proc(
-    beatmap: ^Beatmap,
-    i: int,
-    slider_path_buffer_main, slider_path_buffer_temp: ^[dynamic]Vec2,
-    slider_lod: f32,
-) {
+recalculate_object_end_position :: proc(beatmap: ^Beatmap, i: int, slider_lod: f32) {
     hit_object := beatmap.hit_objects[i]
     switch hit_object.type {
     case .Spinner:
         beatmap.hit_objects[i].start_position = {-100, -100}
         beatmap.hit_objects[i].end_position = {-100, -100}
     case .Slider:
-        generate_slider_path(
-            hit_object.slider_nodes,
-            slider_path_buffer_main,
-            slider_path_buffer_temp,
-            hit_object.slider_length,
-            slider_lod,
-        )
-
-        if len(slider_path_buffer_main) > 0 {
-            beatmap.hit_objects[i].end_position =
-                slider_path_buffer_main[len(slider_path_buffer_main) - 1]
-        }
+        beatmap.hit_objects[i].end_position =
+            hit_object.slider_path[len(hit_object.slider_path) - 1]
     case .Circle:
         beatmap.hit_objects[i].end_position = beatmap.hit_objects[i].start_position
     }
@@ -128,19 +114,23 @@ recalculate_combo_numbers :: proc(beatmap: ^Beatmap, starting_from: int) {
 // recalculates the following for objects:
 //  end_position
 //  end_time
-recalculate_object_values :: proc(
-    beatmap: ^Beatmap,
-    hit_object_index: int,
-    slider_path_buffer_main, slider_path_buffer_temp: ^[dynamic]Vec2,
-    slider_lod: f32,
-) {
+recalculate_object_values :: proc(beatmap: ^Beatmap, hit_object_index: int, slider_lod: f32) {
     recalculate_combo_numbers(beatmap, 0)
     recalculate_object_end_time(beatmap, hit_object_index)
-    recalculate_object_end_position(
-        beatmap,
-        hit_object_index,
-        slider_path_buffer_main,
-        slider_path_buffer_temp,
-        slider_lod,
+    recalculate_object_end_position(beatmap, hit_object_index, slider_lod)
+}
+
+recalculate_slider_path :: proc(beatmap: ^Beatmap, hit_object_index: int, lod: f32) {
+    hit_object := &beatmap.hit_objects[hit_object_index]
+    if hit_object.type != .Slider {
+        return
+    }
+
+    generate_slider_path(
+        hit_object.slider_nodes,
+        &hit_object.slider_path,
+        &slider_path_buffer_temp,
+        hit_object.slider_length,
+        lod,
     )
 }

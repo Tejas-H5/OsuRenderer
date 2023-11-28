@@ -67,7 +67,6 @@ slider_path_iterator :: proc(
 
 // assumes that slider_nodes were generated using slider_length, so it doesn't check that the slider_path is actually slider_length long
 get_slider_ball_pos :: proc(
-    slider_path: [dynamic]Vec2,
     slider: HitObject,
     current_time: f64,
 ) -> (
@@ -91,11 +90,11 @@ get_slider_ball_pos :: proc(
         current_repeat = slider.slider_repeats + 1
 
         if slider.slider_repeats % 2 == 1 {
-            slider_ball_pos = slider_path[len(slider_path) - 1]
+            slider_ball_pos = slider.slider_path[len(slider.slider_path) - 1]
             return
         }
 
-        slider_ball_pos = slider_path[0]
+        slider_ball_pos = slider.slider_path[0]
         return
     }
 
@@ -119,7 +118,7 @@ get_slider_ball_pos :: proc(
 
     iter: SliderPathIterator
     found := false
-    for p0, _ in slider_path_iterator(&iter, slider_path, distance, 100000000) {
+    for p0, _ in slider_path_iterator(&iter, slider.slider_path, distance, 100000000) {
         slider_ball_pos = p0
         found = true
         break
@@ -134,6 +133,7 @@ get_slider_ball_pos :: proc(
 
 
 // level_of_detail is a value in osu!pixels. smaller = more detail
+@(private)
 generate_slider_path :: proc(
     slider_nodes: [dynamic]SliderNode,
     output: ^[dynamic]Vec2,

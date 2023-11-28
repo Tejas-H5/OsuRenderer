@@ -44,8 +44,6 @@ get_position_on_object :: proc(
     hit_object: osu.HitObject,
     beatmap_time: f64,
     circle_radius: f32,
-    slider_path_buffer, slider_path_buffer_temp: ^[dynamic]osu.Vec2,
-    last_generated_slider: ^int,
     slider_id: int,
 ) -> (
     osu.Vec2,
@@ -67,19 +65,7 @@ get_position_on_object :: proc(
         angle := get_spinner_angle(hit_object, beatmap_time)
         return get_spinner_cursor_pos(angle), true
     case .Slider:
-        if last_generated_slider^ != slider_id {
-            osu.generate_slider_path(
-                hit_object.slider_nodes,
-                slider_path_buffer,
-                slider_path_buffer_temp,
-                hit_object.slider_length,
-                SLIDER_LOD,
-            )
-
-            last_generated_slider^ = slider_id
-        }
-
-        pos, _, _ := osu.get_slider_ball_pos(slider_path_buffer^, hit_object, beatmap_time)
+        pos, _, _ := osu.get_slider_ball_pos(hit_object, beatmap_time)
         return pos + stack_offset, true
     }
 
@@ -126,8 +112,6 @@ get_end_position_on_object :: proc(hit_object: osu.HitObject, circle_radius: f32
 get_expected_cursor_pos :: proc(
     beatmap: ^osu.Beatmap,
     t: f64,
-    slider_path_buffer, slider_path_buffer_temp: ^[dynamic]osu.Vec2,
-    last_generated_slider: ^int,
     circle_radius: f32,
     seek_from: int,
     should_lerp_between_objects: bool = true,
@@ -151,15 +135,7 @@ get_expected_cursor_pos :: proc(
     curr_pos := curr.start_position + osu.get_hit_object_stack_offset(curr, circle_radius)
 
     if curr.start_time <= t && t <= curr.end_time {
-        pos, ok := get_position_on_object(
-            curr,
-            t,
-            circle_radius,
-            slider_path_buffer,
-            slider_path_buffer_temp,
-            last_generated_slider,
-            slider_id = i,
-        )
+        pos, ok := get_position_on_object(curr, t, circle_radius, slider_id = i)
         if ok {
             return pos, i
         }
@@ -211,8 +187,6 @@ CursorMotionStragetgyProc ::
             ai_replay: ^AIReplay,
             beatmap: ^osu.Beatmap,
             t: f64,
-            slider_path_buffer, slider_path_buffer_temp: ^[dynamic]osu.Vec2,
-            last_generated_slider: ^int,
             circle_radius: f32,
             seek_from: int,
         ) -> osu.Vec2)
@@ -221,8 +195,6 @@ get_ai_replay_cursor_pos :: proc(
     ai_replay: ^AIReplay,
     beatmap: ^osu.Beatmap,
     t: f64,
-    slider_path_buffer, slider_path_buffer_temp: ^[dynamic]osu.Vec2,
-    last_generated_slider: ^int,
     circle_radius: f32,
     seek_from: int,
     cursor_motion_strategy: (CursorMotionStragetgyProc),
@@ -262,9 +234,6 @@ get_ai_replay_cursor_pos :: proc(
             ai_replay,
             beatmap,
             t_i,
-            slider_path_buffer,
-            slider_path_buffer_temp,
-            last_generated_slider,
             circle_radius,
             ai_replay.last_object_started,
         )
@@ -316,8 +285,6 @@ cursor_motion_strategy_automod :: proc(
     ai_replay: ^AIReplay,
     beatmap: ^osu.Beatmap,
     t: f64,
-    slider_path_buffer, slider_path_buffer_temp: ^[dynamic]osu.Vec2,
-    last_generated_slider: ^int,
     circle_radius: f32,
     seek_from: int,
 ) -> osu.Vec2 {
@@ -325,9 +292,6 @@ cursor_motion_strategy_automod :: proc(
     pos, _ := get_expected_cursor_pos(
         beatmap,
         t,
-        slider_path_buffer,
-        slider_path_buffer_temp,
-        last_generated_slider,
         circle_radius,
         seek_from,
         should_lerp_between_objects = true,
@@ -343,8 +307,6 @@ cursor_strategy_lazy_position :: proc(
     ai_replay: ^AIReplay,
     beatmap: ^osu.Beatmap,
     t: f64,
-    slider_path_buffer, slider_path_buffer_temp: ^[dynamic]osu.Vec2,
-    last_generated_slider: ^int,
     circle_radius: f32,
     seek_from: int,
 ) -> osu.Vec2 {
@@ -352,9 +314,6 @@ cursor_strategy_lazy_position :: proc(
         ai_replay,
         beatmap,
         t,
-        slider_path_buffer,
-        slider_path_buffer_temp,
-        last_generated_slider,
         circle_radius,
         seek_from,
         0.7,
@@ -369,8 +328,6 @@ get_cursor_pos_smoothed_automod_ai :: proc(
     ai_replay: ^AIReplay,
     beatmap: ^osu.Beatmap,
     t: f64,
-    slider_path_buffer, slider_path_buffer_temp: ^[dynamic]osu.Vec2,
-    last_generated_slider: ^int,
     circle_radius: f32,
     seek_from: int,
     circle_slack, slider_slack: f32,
@@ -382,9 +339,6 @@ get_cursor_pos_smoothed_automod_ai :: proc(
     required_position, idx := get_expected_cursor_pos(
         beatmap,
         t,
-        slider_path_buffer,
-        slider_path_buffer_temp,
-        last_generated_slider,
         circle_radius,
         seek_from,
         should_lerp_between_objects = should_lerp_between_objects,
@@ -445,8 +399,6 @@ cursor_strategy_spring_joint :: proc(
     ai_replay: ^AIReplay,
     beatmap: ^osu.Beatmap,
     t: f64,
-    slider_path_buffer, slider_path_buffer_temp: ^[dynamic]osu.Vec2,
-    last_generated_slider: ^int,
     circle_radius: f32,
     seek_from: int,
 ) -> osu.Vec2 {
@@ -465,9 +417,6 @@ cursor_strategy_spring_joint :: proc(
         ai_replay,
         beatmap,
         t,
-        slider_path_buffer,
-        slider_path_buffer_temp,
-        last_generated_slider,
         circle_radius,
         seek_from,
         0.3,
