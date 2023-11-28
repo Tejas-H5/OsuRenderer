@@ -119,113 +119,147 @@ render :: proc() -> bool {
 }
 
 
-p_pos: af.Vec2
-p_vel, p_accel: af.Vec2
-target: af.Vec2
-max_accel: f32 = 100
+PointSimulation :: struct {
+    pos, vel, accel:     af.Vec2,
+    targets:             [dynamic]af.Vec2,
+    color:               af.Color,
+    use_dynamic_axis:    bool,
+    overestimate_factor: f32,
+    total_time_taken:    f32,
+    current_time_taken:  f32,
+}
 
+
+target_radius: f32 = 100
+radius_thinggy: f32 = 10
+point_simulations: [2]PointSimulation
+
+sec_between_targets: f32 = 10
 
 // p_t: f32
+first := true
 motion_integration_test :: proc() -> bool {
-    // some code to accelerate a point to another point as fast as possible.
+    af.clear_screen({})
 
-    af.clear_screen({0, 0, 0, 0})
+    point_simulations[0].color = af.Color{1, 0, 0, 1}
+    point_simulations[0].use_dynamic_axis = true
+    point_simulations[0].overestimate_factor = 1
+    point_simulations[1].color = af.Color{0, 0, 1, 1}
+    point_simulations[1].use_dynamic_axis = false
+    point_simulations[1].overestimate_factor = 1
+
+    adjust_value_with_mousewheel("sec_between_targets", &sec_between_targets, .T, 0.1)
+
     if af.key_just_pressed(.Escape) {
         return false
     }
 
-    if af.key_just_pressed(.R) {
-        p_pos = {af.vw() / 2, af.vh() / 2}
-        p_vel = {}
-        p_accel = {}
-    }
+    PHYSICS_DT :: 0.004
 
-    af.set_draw_params(color = {1, 1, 1, 1})
-    if af.mouse_any_down {
-        target = af.get_mouse_pos()
-        // p_t = 0.1
-    }
+    for i in 0 ..< len(point_simulations) {
+        targets := &point_simulations[i].targets
+        sim_col := point_simulations[i].color
 
-    af.set_draw_color({1, 0, 0, 1})
-    af.draw_circle(af.im, target, 50, 64)
-
-    af.set_draw_color({1, 1, 1, 1})
-    af.draw_circle(af.im, p_pos, 50, 64)
-
-    get_remaining_time :: proc(s, v, s1: f32) -> f32 {
-        dist := s1 - s
-        accel_sign := math.sign(dist)
-        accel := accel_sign * max_accel
-        r1, r2 := quadratic_equation(0.5 * accel, v, -dist)
-
-        return max(r1, r2)
-    }
-
-
-    distance_constant_accel :: proc(a, v0, t: f32) -> f32 {
-        t := abs(t)
-        return 0.5 * a * t * t + v0 * t
-    }
-
-
-    // TODO: right now our axes are the x and y global. But we could just as easily use a coordinate system that is aligned with 
-    // pos->target, right?
-    get_acceleration :: proc(pos, velocity, target: af.Vec2) -> af.Vec2 {
-        get_acceleration_axis :: proc(s, v, s1: f32) -> f32 {
-            dist := s1 - s
-            accel_sign := math.sign(dist)
-            accel := accel_sign * max_accel
-            rt1, rt2 := quadratic_equation(0.5 * accel, v, -dist)
-            remaining_time := max(rt1, rt2) // whichever is positive
-
-            if (accel > 0 && dist > 0) || (accel < 0 && dist < 0) {
-                decel := -accel
-                braking_time := abs(v) / abs(decel)
-                braking_distance := distance_constant_accel(decel, v, braking_time)
-
-                if (dist < 0 && braking_distance < dist) || (dist > 0 && braking_distance > dist) {
-                    return decel
-                }
-
-                return accel
+        freeze_time := af.key_is_down(.Shift)
+        if freeze_time &&
+           (af.mouse_button_just_pressed(.Left) ||
+                   af.key_just_pressed(.Z) ||
+                   af.key_just_pressed(.X)) {
+            target := af.get_mouse_pos()
+            if len(targets) == 0 {
+                point_simulations[i].total_time_taken = 0
+                point_simulations[i].current_time_taken = 0
             }
-
-            return accel
+            append(targets, target)
         }
 
-        ax := get_acceleration_axis(pos.x, velocity.x, target.x)
-        ay := get_acceleration_axis(pos.y, velocity.y, target.y)
-        return {ax, ay}
+        if af.key_just_pressed(.R) {
+            point_simulations[i].pos = {af.vw() / 2, af.vh() / 2}
+            point_simulations[i].vel = {}
+            point_simulations[i].accel = {}
+            clear(targets)
+        }
+
+
+        for i in 0 ..< len(targets) {
+            target := targets[i]
+            col := sim_col
+            col.w = f32(len(targets) - i) / f32(len(targets))
+            af.set_draw_color(col)
+            af.draw_circle(af.im, target, target_radius, 64)
+        }
+
+
+        target := af.Vec2{af.vw() / 2, af.vh() / 2}
+        if len(targets) > 0 {
+            target = targets[0]
+        }
+        next_target := af.Vec2{af.vw() / 2, af.vh() / 2}
+        if len(targets) > 1 {
+            next_target = targets[1]
+        }
+
+        af.set_draw_color(sim_col)
+        af.draw_circle(af.im, point_simulations[i].pos, radius_thinggy, 64)
+
+        if !freeze_time {
+            remaining_time := sec_between_targets - point_simulations[i].current_time_taken
+            accel := get_cursor_acceleration(
+                point_simulations[i].pos,
+                point_simulations[i].vel,
+                target,
+                next_target,
+                remaining_time,
+                sec_between_targets,
+                30000,
+                point_simulations[i].use_dynamic_axis,
+                point_simulations[i].overestimate_factor,
+            )
+            integrate_motion(
+                &point_simulations[i].vel,
+                &point_simulations[i].pos,
+                accel,
+                PHYSICS_DT,
+            )
+
+            if len(targets) > 0 {
+                point_simulations[i].total_time_taken += PHYSICS_DT
+                point_simulations[i].current_time_taken += PHYSICS_DT
+            }
+        }
+
+        if len(targets) > 0 {
+            target = targets[0]
+
+            HIT_WINDOW :: 0.1
+
+            strictness: f32 = 20
+            if linalg.length(target - point_simulations[i].pos) <
+                   (target_radius + radius_thinggy - strictness) &&
+               point_simulations[i].current_time_taken >= sec_between_targets - HIT_WINDOW {
+                ordered_remove(targets, 0)
+                point_simulations[i].current_time_taken = 0
+            }
+        }
     }
 
-    decel_dist: af.Vec2
-    // p_accel = get_acceleration(p_pos, p_vel, target)
-    PHYSICS_DT :: 0.02
-    integrate_motion(&p_vel, &p_pos, p_accel, PHYSICS_DT)
-
-    rt := get_remaining_time(p_pos.x, p_vel.x, target.x)
-    af.draw_font_text(af.im, source_code_pro_regular, fmt.tprintf("remaining: %v", rt), 32, target)
-
-
-    if p_accel.x > 0 {
-        af.set_draw_color({0, 1, 0, 1})
-    } else {
-        af.set_draw_color({1, 0, 0, 1})
-
+    y: f32 = 0
+    s: f32 = 32
+    for i in 0 ..< len(point_simulations) {
+        af.set_draw_color(point_simulations[i].color)
+        af.draw_font_text(
+            af.im,
+            source_code_pro_regular,
+            fmt.tprintf("point %v - %v", i, point_simulations[i].total_time_taken),
+            s,
+            {0, y},
+        )
+        y += s + 2
     }
 
-    af.draw_font_text(
-        af.im,
-        source_code_pro_regular,
-        fmt.tprintf("accel: %v", p_accel.x),
-        32,
-        p_pos + {10, 10},
-    )
-
-
-    // af.draw_line(af.im, p_pos + {decel_dist.x, 10}, p_pos + {decel_dist.x, -10}, 10, .None)
     return true
 }
+
 
 main :: proc() {
     init()
@@ -233,5 +267,33 @@ main :: proc() {
 
     set_screen(.BeatmapPickeView)
     af.run_main_loop(render)
-    // af.run_main_loop(test)
+    // af.run_main_loop(motion_integration_test)
+}
+
+
+adjust_value_with_mousewheel :: proc(
+    name: string,
+    val: ^f32,
+    key_code: af.KeyCode,
+    increment: f32,
+) -> bool {
+    if af.key_is_down(key_code) {
+        af.set_draw_color({1, 0, 0, 1})
+        af.draw_font_text_pivoted(
+            af.im,
+            source_code_pro_regular,
+            fmt.tprintf("adjusting %v... %v", name, val^),
+            32,
+            {af.vw() / 2, af.vh() / 2},
+            {0.5, 0.5},
+        )
+
+
+        if abs(af.mouse_wheel_notches) > 0.0001 {
+            val^ += af.mouse_wheel_notches * increment
+            return true
+        }
+    }
+
+    return false
 }

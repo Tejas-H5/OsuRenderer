@@ -44,7 +44,6 @@ get_position_on_object :: proc(
     hit_object: osu.HitObject,
     beatmap_time: f64,
     circle_radius: f32,
-    slider_id: int,
 ) -> (
     osu.Vec2,
     bool,
@@ -135,7 +134,7 @@ get_expected_cursor_pos :: proc(
     curr_pos := curr.start_position + osu.get_hit_object_stack_offset(curr, circle_radius)
 
     if curr.start_time <= t && t <= curr.end_time {
-        pos, ok := get_position_on_object(curr, t, circle_radius, slider_id = i)
+        pos, ok := get_position_on_object(curr, t, circle_radius)
         if ok {
             return pos, i
         }
@@ -173,9 +172,7 @@ AIReplay :: struct {
 
     // only used by functions that are physics-based.
     velocity:            osu.Vec2,
-    last_spring_length:  f32,
-    spring_force:        f32,
-    slider_spring_force: f32,
+    max_accel:           f32,
 }
 
 get_replay_duration :: proc(replay: [dynamic]osu.Vec2) -> f64 {
@@ -273,6 +270,7 @@ get_ai_replay_cursor_pos :: proc(
 
 reset_ai_replay :: proc(ai_replay: ^AIReplay) {
     clear(&ai_replay.replay)
+    ai_replay.velocity = {}
     ai_replay.replay_seek_from = 0
     ai_replay.last_object_started = 0
 }
@@ -393,73 +391,91 @@ get_cursor_pos_smoothed_automod_ai :: proc(
 }
 
 
-// Cling to the current position with a large yet finite amount of force.
-// Sliders and non-sliders can be calibrated to have different force amounts, to get more realistic paths
-cursor_strategy_spring_joint :: proc(
+// Accelerate to the current position with a large yet finite amount of force.
+// still needs some polishing imo, but looks quite realistic as it is purely physics-sim based
+cursor_strategy_physical_accelerator :: proc(
     ai_replay: ^AIReplay,
     beatmap: ^osu.Beatmap,
     t: f64,
     circle_radius: f32,
     seek_from: int,
 ) -> osu.Vec2 {
-    // target_pos, idx := get_expected_cursor_pos(
-    //     beatmap,
-    //     t,
-    //     slider_path_buffer,
-    //     slider_path_buffer_temp,
-    //     last_generated_slider,
-    //     circle_radius,
-    //     seek_from,
-    //     should_lerp_between_objects = false,
-    // )
+    hit_objects := beatmap.hit_objects
 
-    target_pos, idx := get_cursor_pos_smoothed_automod_ai(
-        ai_replay,
-        beatmap,
-        t,
-        circle_radius,
-        seek_from,
-        0.3,
-        1,
-        should_lerp_between_objects = false,
-    )
-
-    current_object := beatmap.hit_objects[idx]
-    spring_force := ai_replay.spring_force
-    if current_object.start_time < t {
-        // on sliders, we should reduce our spring force
-        fade_in :: 0.05
-        lerp_t := fade_in_fade_out_curve(
-            current_object.start_time,
-            current_object.end_time,
-            t,
-            fade_in,
-            fade_in,
-        )
-
-        spring_force = math.lerp(
-            ai_replay.spring_force,
-            ai_replay.slider_spring_force,
-            f32(lerp_t),
-        )
-    }
-
-    v := ai_replay.velocity
+    // This is a hack to get 32x more delta-time resolution without saving 32 more frames per replay.
+    // It is extremely effective
+    ITERATIONS :: 32
+    real_dt: f32 = AI_REPLAY_DT / ITERATIONS
     current_pos := ai_replay_last_pos(ai_replay)
 
-    // not sure how the damper fits here, actually
+    for i in 0 ..< ITERATIONS {
 
-    spring_vec := target_pos - current_pos
-    spring_length := linalg.length(spring_vec)
-    if spring_length < 0.0001 {
-        return current_pos
+        if len(hit_objects) == 0 {
+            return PLAYFIELD_CENTER
+        }
+
+        i, _ := beatmap_get_current_object(beatmap, t, seek_from)
+        if i >= len(hit_objects) {
+            i = len(hit_objects) - 1
+        }
+
+        target_pos, next_target_pos: osu.Vec2
+        time_to_target, time_to_next_target: f32
+        next_target_handled := false
+        if hit_objects[i].start_time <= t && t <= hit_objects[i].end_time {
+            // we are on a slider or a spinner
+
+            SLIDER_LOOKAHEAD :: 0.1
+
+            target_pos, _ = get_position_on_object(
+                hit_objects[i],
+                t + SLIDER_LOOKAHEAD,
+                circle_radius,
+            )
+            time_to_target = SLIDER_LOOKAHEAD
+
+            ok: bool
+
+            next_target_pos, ok = get_position_on_object(
+                hit_objects[i],
+                t + SLIDER_LOOKAHEAD * 2,
+                circle_radius,
+            )
+            if ok {
+                next_target_handled = true
+                time_to_next_target = SLIDER_LOOKAHEAD
+            }
+        } else {
+            // we are on a circle
+            target_pos = get_start_position_on_object(hit_objects[i], circle_radius)
+            time_to_target = f32(hit_objects[i].start_time - t)
+        }
+
+        if !next_target_handled {
+            if i + 1 < len(hit_objects) {
+                next_target_pos = get_start_position_on_object(hit_objects[i + 1], circle_radius)
+            } else {
+                HARDCODED_TIME :: 0.5
+                next_target_pos = PLAYFIELD_CENTER
+                time_to_next_target = f32(hit_objects[len(hit_objects) - 1].end_time + 0.5 - t)
+            }
+        }
+
+        accel := get_cursor_acceleration(
+            current_pos,
+            ai_replay.velocity,
+            target_pos,
+            next_target_pos,
+            time_to_target,
+            time_to_next_target,
+            ai_replay.max_accel,
+            use_dynamic_axis = false,
+            braking_distance_overestimate_factor = 1,
+        )
+
+        integrate_motion(&ai_replay.velocity, &current_pos, accel, real_dt)
     }
 
-    // NOTE: notice that that spring_vec is not normalized
-    v = spring_vec * spring_force
-    accel := v - ai_replay.velocity
-
-    integrate_motion(&v, &current_pos, accel, AI_REPLAY_DT)
     return current_pos
 }
 
@@ -467,4 +483,115 @@ integrate_motion :: proc(vel, pos: ^osu.Vec2, accel: osu.Vec2, dt: f32) {
     vel^ += accel * dt
     pos^ += vel^ * dt
     vel^ += accel * dt
+}
+
+
+// TODO: right now our axes are the x and y global. But we could just as easily use a coordinate system that is aligned with 
+// pos->target, right?
+get_cursor_acceleration :: proc(
+    pos, velocity: osu.Vec2,
+    target, next_target: osu.Vec2,
+    time_to_target, time_to_next_target: f32,
+    max_accel: f32,
+    use_dynamic_axis: bool,
+    braking_distance_overestimate_factor: f32,
+) -> osu.Vec2 {
+    axis_1 := osu.Vec2{1, 0}
+    dynamic_axis := next_target - target
+    if use_dynamic_axis && linalg.length(dynamic_axis) > 0.0001 {
+        axis_1 = linalg.normalize(dynamic_axis)
+    }
+
+    axis_2 := osu.Vec2{-axis_1.y, axis_1.x}
+
+    a1 := get_cursor_acceleration_axis(
+        pos,
+        velocity,
+        target,
+        next_target,
+        time_to_target,
+        time_to_next_target,
+        axis_1,
+        max_accel,
+        braking_distance_overestimate_factor,
+    )
+    a2 := get_cursor_acceleration_axis(
+        pos,
+        velocity,
+        target,
+        next_target,
+        time_to_target,
+        time_to_next_target,
+        axis_2,
+        max_accel,
+        braking_distance_overestimate_factor,
+    )
+    a_vec := a1 * axis_1 + a2 * axis_2
+
+    // af.set_draw_color({1, 1, 0, 1})
+    // af.draw_line(af.im, pos, pos + (a1 * axis_1), 10, .None)
+    // af.draw_line(af.im, pos, pos + (a2 * axis_2), 10, .None)
+
+    return a_vec
+
+    get_cursor_acceleration_axis :: proc(
+        pos, velocity: osu.Vec2,
+        target, next_target: osu.Vec2,
+        time_to_target, time_to_next_target: f32,
+        axis: osu.Vec2,
+        max_accel: f32,
+        braking_distance_overestimate_factor: f32,
+    ) -> f32 {
+        s := linalg.dot(pos, axis)
+        s1 := linalg.dot(target, axis)
+        s2 := linalg.dot(next_target, axis)
+        v := linalg.dot(velocity, axis)
+
+        accel_constant_accel :: proc(s, v0, t: f32) -> f32 {
+            return 2 * (s - v0 * t) / (t * t)
+        }
+
+        dist := s1 - s
+        max_accel := max_accel
+        if time_to_target > 0.01 {
+            // max_accel = min(max_accel, abs(accel_constant_accel(dist, v, time_to_target)))
+            max_accel = abs(accel_constant_accel(dist, v, time_to_target))
+        }
+        accel_sign := math.sign(dist)
+        accel := accel_sign * max_accel
+        rt1, rt2 := quadratic_equation(0.5 * accel, v, -dist)
+        time_remaining_with_full_accel := max(rt1, rt2)
+
+        // A reminder that * is just 1-dimensional dot product, and that dot(normal_vector, other_vec) 
+        // is the distance of other_vec projected onto normal_vector.
+        // This eliminates a lot of sign-based branching code like: `if (accel > 0 && dist > 0) || (accel < 0 && dist < 0) {` for example.
+        if accel * dist > 0 {
+            decel := -accel_sign * max_accel
+
+            wanted_end_velocity: f32 = 0
+            dist_to_next := s2 - s1
+            if dist * dist_to_next > 0 {
+                // they are in a line. we don't need to slow all the way down, we can slow to a constant velocity.
+                // TODO: implement flow-aim code, wanted_end_velocity = dist_to_next / (p2_t - p1_t)
+            }
+
+            braking_time :=
+                braking_distance_overestimate_factor * abs(v - wanted_end_velocity) / abs(decel)
+            distance_constant_accel :: proc(a, v0, t: f32) -> f32 {
+                t := abs(t)
+                return 0.5 * a * t * t + v0 * t
+            }
+
+            braking_distance := distance_constant_accel(decel, v, braking_time)
+            TOLERANCE :: 10
+            if (dist < 0 && braking_distance - TOLERANCE <= dist) ||
+               (dist > 0 && braking_distance + TOLERANCE >= dist) {
+                return decel
+            }
+
+            return accel
+        }
+
+        return accel
+    }
 }

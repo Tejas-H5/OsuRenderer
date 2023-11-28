@@ -25,7 +25,7 @@ beatmap: ^osu.Beatmap
 
 automod_replay: AIReplay
 custom_ai_replay: AIReplay
-spring_joint_ai_replay: AIReplay
+pure_acceleration_based_replay: AIReplay
 
 ais := []AIInfo {
      {
@@ -41,9 +41,9 @@ ais := []AIInfo {
         color = {1, 0, 0, 1},
     },
      {
-        name = "AS + spring joint",
-        ai_fn = cursor_strategy_spring_joint,
-        replay_state = &spring_joint_ai_replay,
+        name = "Physics-based acceleration integrator",
+        ai_fn = cursor_strategy_physical_accelerator,
+        replay_state = &pure_acceleration_based_replay,
         color = {0, 1, 0, 1},
     },
 }
@@ -417,8 +417,7 @@ reset_ai_replays :: proc() {
 }
 
 load_current_beatmap :: proc() {
-    spring_joint_ai_replay.slider_spring_force = 17
-    spring_joint_ai_replay.spring_force = 50
+    pure_acceleration_based_replay.max_accel = 40000
 
     beatmap_time = 0
     wanted_music_time = 0
@@ -503,50 +502,20 @@ draw_beatmap_view :: proc() {
 
     af.set_layout_rect(layout_playfield)
     draw_osu_beatmap(&beatmap_info)
-    // draw_ai_cursors(ais)
+    draw_ai_cursors(ais)
 
     af.set_layout_rect(layout_ui)
     draw_info_panel(beatmap_info, ais)
 
     process_input :: proc() {
-        adjust_value_with_mousewheel :: proc(
-            name: string,
-            val: ^f32,
-            key_code: af.KeyCode,
-        ) -> bool {
-            if af.key_is_down(key_code) {
-                af.set_draw_color({1, 0, 0, 1})
-                af.draw_font_text_pivoted(
-                    af.im,
-                    source_code_pro_regular,
-                    fmt.tprintf("adjusting %v... %v", name, val^),
-                    32,
-                    {af.vw() / 2, af.vh() / 2},
-                    {0.5, 0.5},
-                )
-
-
-                if abs(af.mouse_wheel_notches) > 0.0001 {
-                    val^ += af.mouse_wheel_notches
-                    return true
-                }
-            }
-
-            return false
-        }
-
-        if adjust_value_with_mousewheel("spring force", &spring_joint_ai_replay.spring_force, .S) {
-            return
-        }
-
         if adjust_value_with_mousewheel(
-               "slider spring force",
-               &spring_joint_ai_replay.slider_spring_force,
-               .D,
+               "max_accel",
+               &pure_acceleration_based_replay.max_accel,
+               .S,
+               1000,
            ) {
             return
         }
-
 
         if af.key_just_pressed(.R) {
             reset_ai_replays()

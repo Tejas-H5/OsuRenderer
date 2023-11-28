@@ -105,6 +105,7 @@ vh :: proc() -> f32 {
 // render_fn should return true if the loop should continue for one more frame, and false if it shuold exit
 run_main_loop :: proc(render_fn: (proc() -> bool)) {
     window_render_fn = render_fn
+    clear_screen({0, 0, 0, 0})
     for !window_should_close() {
         begin_frame()
 
@@ -168,6 +169,7 @@ internal_glfw_framebuffer_size_callback :: proc "c" (
     internal_on_framebuffer_resize(width, height)
 
     if window_render_fn != nil {
+        clear_screen({0, 0, 0, 0})
         window_render_fn()
     }
 }
