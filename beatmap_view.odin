@@ -487,13 +487,20 @@ draw_beatmap_view :: proc() {
 
     process_input()
 
-    padding :: 20
 
+    playfield_padding :: 80
     layout_base := af.layout_rect
     layout_playfield := layout_base
-    layout_playfield.x0 += padding
-    layout_playfield.width = (layout_playfield.width * 0.7) - (2 * padding)
+    layout_playfield.width *= 0.7
+    af.set_rect_size(
+        &layout_playfield,
+        layout_playfield.width - 2 * playfield_padding,
+        layout_playfield.height - 2 * playfield_padding,
+        0.5,
+        0.5,
+    )
 
+    padding :: 20
     layout_ui := layout_base
     layout_ui.x0 += layout_playfield.width + layout_playfield.x0 + padding
     layout_ui.width -= layout_ui.x0
@@ -647,7 +654,9 @@ draw_beatmap_view :: proc() {
             replay := ai.replay_state
             replay_hindsight :: 100
 
-            af.set_draw_color(ai.color)
+            ai_col := ai.color
+            ai_col[3] = 0.5
+            af.set_draw_color(ai_col)
             for i in max(
                 0,
                 replay.replay_seek_from - replay_hindsight,
@@ -655,7 +664,9 @@ draw_beatmap_view :: proc() {
                 p0 := osu_to_view(replay.replay[i])
                 p1 := osu_to_view(replay.replay[i + 1])
 
-                af.draw_line(af.im, p0, p1, 1, .None)
+                thickness := linalg.length(p0 - p1) * 0.5
+
+                af.draw_line(af.im, p0, p1, thickness, .None)
             }
         }
     }

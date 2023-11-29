@@ -120,13 +120,12 @@ render :: proc() -> bool {
 
 
 PointSimulation :: struct {
-    pos, vel, accel:     af.Vec2,
-    targets:             [dynamic]af.Vec2,
-    color:               af.Color,
-    use_dynamic_axis:    bool,
-    overestimate_factor: f32,
-    total_time_taken:    f32,
-    current_time_taken:  f32,
+    pos, vel, accel:    af.Vec2,
+    targets:            [dynamic]af.Vec2,
+    color:              af.Color,
+    use_dynamic_axis:   bool,
+    total_time_taken:   f32,
+    current_time_taken: f32,
 }
 
 
@@ -134,27 +133,27 @@ target_radius: f32 = 100
 radius_thinggy: f32 = 10
 point_simulations: [2]PointSimulation
 
-sec_between_targets: f32 = 10
+sec_between_targets: f32 = 0.3
+accel_limit: f32 = 50000
 
 // p_t: f32
 first := true
 motion_integration_test :: proc() -> bool {
     af.clear_screen({})
 
-    point_simulations[0].color = af.Color{1, 0, 0, 1}
-    point_simulations[0].use_dynamic_axis = true
-    point_simulations[0].overestimate_factor = 1
-    point_simulations[1].color = af.Color{0, 0, 1, 1}
-    point_simulations[1].use_dynamic_axis = false
-    point_simulations[1].overestimate_factor = 1
+    point_simulations[0].color = af.Color{0, 0, 1, 1}
+    point_simulations[0].use_dynamic_axis = false
+    point_simulations[1].color = af.Color{1, 0, 0, 1}
+    point_simulations[1].use_dynamic_axis = true
 
-    adjust_value_with_mousewheel("sec_between_targets", &sec_between_targets, .T, 0.1)
+    adjust_value_with_mousewheel("sec_between_targets", &sec_between_targets, .S, 0.05)
+    adjust_value_with_mousewheel("accel_limit", &accel_limit, .D, 0.05 * accel_limit)
 
     if af.key_just_pressed(.Escape) {
         return false
     }
 
-    PHYSICS_DT :: 0.004
+    PHYSICS_DT :: AI_REPLAY_DT / 32
 
     for i in 0 ..< len(point_simulations) {
         targets := &point_simulations[i].targets
@@ -183,10 +182,13 @@ motion_integration_test :: proc() -> bool {
 
         for i in 0 ..< len(targets) {
             target := targets[i]
-            col := sim_col
-            col.w = f32(len(targets) - i) / f32(len(targets))
+            col: af.Color = sim_col
+            col[3] = f32(len(targets) - i) / f32(len(targets))
+
             af.set_draw_color(col)
-            af.draw_circle(af.im, target, target_radius, 64)
+            af.draw_circle_outline(af.im, target, target_radius, 64, 1)
+            af.draw_line(af.im, target + {0, target_radius}, target - {0, target_radius}, 1, .None)
+            af.draw_line(af.im, target + {target_radius, 0}, target - {target_radius, 0}, 1, .None)
         }
 
 
@@ -203,7 +205,8 @@ motion_integration_test :: proc() -> bool {
         af.draw_circle(af.im, point_simulations[i].pos, radius_thinggy, 64)
 
         if !freeze_time {
-            remaining_time := sec_between_targets - point_simulations[i].current_time_taken
+            time_taken := point_simulations[i].current_time_taken
+            remaining_time := sec_between_targets - time_taken
             accel := get_cursor_acceleration(
                 point_simulations[i].pos,
                 point_simulations[i].vel,
@@ -211,9 +214,8 @@ motion_integration_test :: proc() -> bool {
                 next_target,
                 remaining_time,
                 sec_between_targets,
-                30000,
+                accel_limit,
                 point_simulations[i].use_dynamic_axis,
-                point_simulations[i].overestimate_factor,
             )
             integrate_motion(
                 &point_simulations[i].vel,
@@ -231,11 +233,10 @@ motion_integration_test :: proc() -> bool {
         if len(targets) > 0 {
             target = targets[0]
 
-            HIT_WINDOW :: 0.1
+            HIT_WINDOW :: 0.005
 
-            strictness: f32 = 20
-            if linalg.length(target - point_simulations[i].pos) <
-                   (target_radius + radius_thinggy - strictness) &&
+            TOLERANCE :: 10
+            if linalg.length(target - point_simulations[i].pos) < TOLERANCE &&
                point_simulations[i].current_time_taken >= sec_between_targets - HIT_WINDOW {
                 ordered_remove(targets, 0)
                 point_simulations[i].current_time_taken = 0
