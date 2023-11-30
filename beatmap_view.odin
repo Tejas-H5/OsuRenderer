@@ -581,6 +581,7 @@ draw_beatmap_view :: proc() {
             audio.set_playing(!audio.is_playing())
 
             if audio.is_playing() {
+                wanted_music_time = beatmap_time
                 audio.set_playback_seconds(wanted_music_time)
             }
         }

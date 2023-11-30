@@ -491,7 +491,7 @@ cursor_strategy_physical_accelerator :: proc(
             ai_replay.velocity,
             target_pos,
             next_target_pos,
-            time_to_target * 0.9,
+            time_to_target,
             time_to_next_target,
             ai_replay.max_accel,
             use_dynamic_axis = true,

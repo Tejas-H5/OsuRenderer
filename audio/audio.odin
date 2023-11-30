@@ -1,11 +1,15 @@
 package audio
 
 import "../af"
+import "core:sync"
 import ma "vendor:miniaudio"
 
 AudioContext :: struct {
-    current_music: ^Music,
-    is_playing:    bool,
+    current_music:   ^Music,
+    is_playing:      bool,
+
+    // prevents the playback time from desync with what we are hearing, which can happen without locking.
+    is_seeking_lock: sync.Mutex,
 }
 
 Music :: struct {
@@ -68,7 +72,9 @@ set_music :: proc(music: ^Music) -> AudioError {
             return
         }
 
+        sync.mutex_lock(&audio_context.is_seeking_lock)
         ma.decoder_read_pcm_frames(&ctx.current_music.decoder, output, u64(frameCount), nil)
+        sync.mutex_unlock(&audio_context.is_seeking_lock)
     }
 
     result: ma.result
@@ -132,10 +138,13 @@ set_playback_seconds :: proc(seconds: f64) -> AudioError {
     decoder := &audio_context.current_music.decoder
     cursor := u64(seconds * f64(decoder.outputSampleRate))
 
+    sync.mutex_lock(&audio_context.is_seeking_lock)
     res := ma.decoder_seek_to_pcm_frame(decoder, cursor)
+    sync.mutex_unlock(&audio_context.is_seeking_lock)
     if res != .SUCCESS {
         return {"Failed to seek to frame", res}
     }
+
 
     return {"", .SUCCESS}
 }
