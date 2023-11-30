@@ -87,7 +87,24 @@ osu_to_view_dir :: proc(dir: af.Vec2) -> af.Vec2 {
     return osu_to_view(dir)
 }
 
-draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64, opacity: f32) {
+draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64) {
+    opacity := osu.calculate_opacity(
+        beatmap,
+        beatmap.hit_objects[index].start_time,
+        beatmap.hit_objects[index].end_time,
+        beatmap_time,
+        fade_in,
+        fade_in,
+    )
+    start_opacity := osu.calculate_opacity(
+        beatmap,
+        beatmap.hit_objects[index].start_time,
+        beatmap.hit_objects[index].start_time,
+        beatmap_time,
+        fade_in,
+        fade_in,
+    )
+
     // TODO: move
     hit_object := beatmap.hit_objects[index]
     original_layout_rect := af.layout_rect
@@ -173,9 +190,6 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
         if len(hit_object.slider_path) >= 2 {
             // draw slider end
             slider_path_buffer := hit_object.slider_path
-            slider_end_pos := slider_path_buffer[len(slider_path_buffer) - 1]
-            af.set_draw_params(color = af.Color{1, 1, 1, 1 * opacity}, texture = nil)
-            af.draw_circle_outline(af.im, circle_pos, circle_radius - thickness, 64, thickness)
 
             // draw the slider body to a framebuffer, then blit that framebuffer to the screen with an opacity
             af.resize_framebuffer(
@@ -206,7 +220,7 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
 
             af.set_stencil_mode(.WriteOnes)
             af.clear_stencil()
-            af.set_draw_color(color = af.Color{.2, .2, .2, 0.5})
+            af.set_draw_params(color = af.Color{.2, .2, .2, 0.5})
             stroke_slider_path(
                 slider_path_buffer,
                 (circle_radius - thickness) * 2,
@@ -294,7 +308,10 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
         }
     }
 
-    if hit_object.type == .Circle || hit_object.type == .Slider {
+    if hit_object.type == .Circle ||
+       (hit_object.type == .Slider && beatmap_time < hit_object.start_time) {
+        opacity := start_opacity
+
         // draw circle or slider head on top of the bezier curve
         af.set_draw_params(color = af.Color{1, 1, 1, 1 * opacity}, texture = nil)
         af.draw_circle_outline(af.im, circle_pos, circle_radius - thickness, 64, thickness)
@@ -354,7 +371,8 @@ draw_hit_objects :: proc(beatmap: ^osu.Beatmap, first, last: int, preempt, fade_
     for i := last; i >= first; i -= 1 {
         opacity := osu.calculate_opacity(
             beatmap,
-            beatmap.hit_objects[i],
+            beatmap.hit_objects[i].start_time,
+            beatmap.hit_objects[i].end_time,
             beatmap_time,
             fade_in,
             fade_in,
@@ -364,7 +382,8 @@ draw_hit_objects :: proc(beatmap: ^osu.Beatmap, first, last: int, preempt, fade_
         if i < len(beatmap.hit_objects) - 1 && beatmap.hit_objects[i + 1].combo_number != 1 {
             opacity_next := osu.calculate_opacity(
                 beatmap,
-                beatmap.hit_objects[i + 1],
+                beatmap.hit_objects[i + 1].start_time,
+                beatmap.hit_objects[i + 1].end_time,
                 beatmap_time,
                 fade_in,
                 fade_in,
@@ -387,7 +406,7 @@ draw_hit_objects :: proc(beatmap: ^osu.Beatmap, first, last: int, preempt, fade_
             af.draw_line(af.im, osu_to_view(p0), osu_to_view(p1), 1, .None)
         }
 
-        draw_hit_object(beatmap, i, preempt, fade_in, opacity)
+        draw_hit_object(beatmap, i, preempt, fade_in)
     }
 }
 

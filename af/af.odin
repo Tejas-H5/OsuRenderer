@@ -4,6 +4,7 @@ import "core:c"
 import "core:fmt"
 import "core:math"
 import "core:math/linalg"
+import "core:mem"
 import "core:runtime"
 import "core:strings"
 import "core:time"
@@ -106,6 +107,30 @@ vh :: proc() -> f32 {
 run_main_loop :: proc(render_fn: (proc() -> bool)) {
     window_render_fn = render_fn
     clear_screen({0, 0, 0, 0})
+
+    when ODIN_DEBUG {
+        track: mem.Tracking_Allocator
+        mem.tracking_allocator_init(&track, context.allocator)
+        context.allocator = mem.tracking_allocator(&track)
+
+        defer {
+            if len(track.allocation_map) > 0 {
+                fmt.eprintf("=== %v allocations not freed: ===\n", len(track.allocation_map))
+                for _, entry in track.allocation_map {
+                    fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
+                }
+            }
+            if len(track.bad_free_array) > 0 {
+                fmt.eprintf("=== %v incorrect frees: ===\n", len(track.bad_free_array))
+                for entry in track.bad_free_array {
+                    fmt.eprintf("- %p @ %v\n", entry.memory, entry.location)
+                }
+            }
+            mem.tracking_allocator_destroy(&track)
+        }
+    }
+
+
     for !window_should_close() {
         begin_frame()
 
@@ -168,8 +193,9 @@ internal_glfw_framebuffer_size_callback :: proc "c" (
     context = runtime.default_context()
     internal_on_framebuffer_resize(width, height)
 
+    clear_screen({0, 0, 0, 0})
+
     if window_render_fn != nil {
-        clear_screen({0, 0, 0, 0})
         window_render_fn()
     }
 }
@@ -745,9 +771,9 @@ arc_edge_count :: proc(
     // If we want 1 point every x units of circumferance, then num_points = C / x. 
     // We would break the angle down into angle / (num_points) to get the delta_angle.
     // So, delta_angle = angle / (num_points) = angle / ((radius * angle) / x) = (angle * x) / (radius * angle) = x / radius
-    delta_angle := points_per_pixel / radius
-
+    delta_angle := abs(points_per_pixel / radius)
     edge_count := min(int(angle / delta_angle) + 1, max_circle_edge_count)
+
 
     return edge_count
 }
@@ -935,8 +961,8 @@ draw_line_outline :: proc(
 
 
 DrawFontTextMeasureResult :: struct {
-    width:   f32, // how wide is the text?
-    str_pos: int, // how far into the text did we get to? (makes more sense if you set a max_width on the text)
+    str_pos:        int, // how far into the text did we get to? (makes more sense if you set a max_width on the text)
+    start_x, width: f32,
 }
 
 draw_font_text_pivoted :: proc(
@@ -984,33 +1010,32 @@ draw_font_text :: proc(
         set_draw_texture(font.texture)
     }
 
-    str_pos := 0
-    init_x := pos.x
-    x := pos.x
-    for str_pos < len(text) {
-        codepoint, codepoint_size := utf8_next_rune(text, str_pos)
-        str_pos += codepoint_size
+    res := DrawFontTextMeasureResult{}
+    res.start_x = pos.x
+    for res.str_pos < len(text) {
+        codepoint, codepoint_size := utf8_next_rune(text, res.str_pos)
 
         glyph_info := get_font_glyph_info(font, codepoint)
 
-        next_x := x + glyph_info.advance_x * size
-        if next_x > max_width {
-            x = next_x
+        x := res.start_x + res.width
+
+        res.width += glyph_info.advance_x * size
+        if res.width > max_width {
             break
         }
+
+        res.str_pos += codepoint_size
 
         if !is_measuring {
             draw_font_glyph(output, font, glyph_info, size, {x, pos.y})
         }
-
-        x = next_x
     }
 
     if !is_measuring {
         set_draw_texture(prev_texture)
     }
 
-    return DrawFontTextMeasureResult{width = x - init_x}
+    return res
 }
 
 get_font_glyph_info :: proc(font: ^DrawableFont, codepoint: rune) -> GlyphInfo {

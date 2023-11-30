@@ -137,12 +137,13 @@ get_slider_ball_pos :: proc(
 generate_slider_path :: proc(
     slider_nodes: [dynamic]SliderNode,
     output: ^[dynamic]Vec2,
-    temp_buffer: ^[dynamic]Vec2,
     slider_len: f32,
     level_of_detail: f32,
 ) {
     clear(output)
-    clear(temp_buffer)
+    temp_buffer := make([dynamic]Vec2)
+    defer delete(temp_buffer)
+
     // generate the basic shape of the slider.
     // right now, the output is actually the 'temp' buffer
 
@@ -154,7 +155,7 @@ generate_slider_path :: proc(
         end_node = find_next_red_node_or_end(slider_nodes, current_node + 1)
 
         if end_node - current_node == 1 {
-            generate_line_curve(slider_nodes, current_node, end_node, temp_buffer)
+            generate_line_curve(slider_nodes, current_node, end_node, &temp_buffer)
         } else if end_node - current_node == 2 &&
            slider_nodes[current_node + 1].type == .PerfectCircle {
             // NOTE: to be more like osu!, it should really be len(slider_nodes) == 3, but I want to allow for multiple perfect circles
@@ -163,7 +164,7 @@ generate_slider_path :: proc(
                 current_node,
                 current_node + 1,
                 end_node,
-                temp_buffer,
+                &temp_buffer,
                 level_of_detail,
             )
         } else {
@@ -171,16 +172,16 @@ generate_slider_path :: proc(
                 slider_nodes,
                 current_node,
                 end_node,
-                temp_buffer,
+                &temp_buffer,
                 level_of_detail,
             )
         }
 
         iter: SliderPathIterator
-        if len(temp_buffer) > 0 {
+        if len(&temp_buffer) > 0 {
             first := true
             remaining_distance_orig := remaining_distance
-            for p0, p1 in slider_path_iterator(&iter, temp_buffer^, 0, remaining_distance_orig) {
+            for p0, p1 in slider_path_iterator(&iter, temp_buffer, 0, remaining_distance_orig) {
                 if first {
                     first = false
                     append(output, p0)

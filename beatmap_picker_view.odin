@@ -21,13 +21,7 @@ beatmap_picker_current_folder: string = ""
 
 refresh_beatmap_picker :: proc() {
     if !refresh_files_list(&beatmap_folder_picker, OSU_DIR) {
-        beatmap_picker_error =
-        "Failed to check the osu directory. Make sure the OSU_DIR variable in env.odin is set correctly (it isn't by default)"
-
-        af.debug_info(
-            "Failed to check the osu directory. Make sure the OSU_DIR variable in env.odin is set correctly (it isn't by default). Yours is set to %v",
-            OSU_DIR,
-        )
+        beatmap_picker_error = "Failed to check the osu directory"
     }
 }
 
@@ -40,15 +34,30 @@ draw_beatmap_picker :: proc() {
     }
 
     if beatmap_picker_error != "" {
+        if af.key_just_pressed(.Escape) {
+            set_screen(.Exit)
+            return
+        }
+
         af.set_draw_params(color = {1, 0, 0, 1})
-        af.draw_font_text_pivoted(
-            af.im,
-            source_code_pro_regular,
-            beatmap_picker_error,
-            24,
-            {af.vw() / 2, af.vh() / 2},
-            {0.5, 0.5},
-        )
+
+        error_msg := fmt.tprintf("%v - currently checking \"%v\"", beatmap_picker_error, OSU_DIR)
+        // TODO: better text rendering 
+        y := af.vh() / 2
+        for len(error_msg) > 0 {
+            res := af.draw_font_text_pivoted(
+                af.im,
+                source_code_pro_regular,
+                error_msg,
+                24,
+                {af.vw() / 2, y},
+                {0.5, 0.5},
+                max_width = af.vw() / 2,
+            )
+
+            error_msg = error_msg[res.str_pos:]
+            y -= 24
+        }
         return
     }
 

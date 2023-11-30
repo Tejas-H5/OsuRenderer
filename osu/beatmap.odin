@@ -117,6 +117,8 @@ free_beatmap :: proc(beatmap: ^Beatmap) {
     delete(beatmap.hit_objects)
     delete(beatmap.text)
     beatmap.text = ""
+
+    free(beatmap)
 }
 
 free_hitobject :: proc(hitobject: ^HitObject) {

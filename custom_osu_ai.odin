@@ -480,10 +480,10 @@ cursor_strategy_physical_accelerator :: proc(
             )
         }
 
-        SMOOTHING_FACTOR :: 0.4
+        SMOOTHING_FACTOR :: 0.5
         if linalg.length(target_pos - current_pos) > SMOOTHING_FACTOR * circle_radius {
             target_pos +=
-                linalg.normalize(target_pos - current_pos) * SMOOTHING_FACTOR * circle_radius
+                linalg.normalize(current_pos - target_pos) * SMOOTHING_FACTOR * circle_radius
         }
 
         accel := get_cursor_acceleration(
@@ -494,7 +494,7 @@ cursor_strategy_physical_accelerator :: proc(
             time_to_target * 0.9,
             time_to_next_target,
             ai_replay.max_accel,
-            use_dynamic_axis = false,
+            use_dynamic_axis = true,
         )
 
         integrate_motion(&ai_replay.velocity, &current_pos, accel, real_dt)
@@ -520,8 +520,14 @@ get_cursor_acceleration :: proc(
     use_dynamic_axis: bool,
 ) -> osu.Vec2 {
     axis_1 := osu.Vec2{1, 0}
-    dynamic_axis := next_target - target
-    // dynamic_axis := target - pos
+    // dynamic_axis := linalg.normalize(velocity)
+    // dynamic_axis := next_target - target
+    pos_to_target := target - pos // NOTE: this on it's own is a bad dynamic axis that is prone to starting orbits
+    segments_angle: f32 = math.PI / 3
+    dynamic_axis := angle_vec(
+        math.floor(math.atan2(pos_to_target.y, pos_to_target.x) / segments_angle) * segments_angle,
+        1,
+    )
     if use_dynamic_axis && linalg.length(dynamic_axis) > 0.0001 {
         axis_1 = linalg.normalize(dynamic_axis)
     }

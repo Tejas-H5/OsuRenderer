@@ -3,8 +3,6 @@ package osu
 import "../af"
 import "core:math"
 
-slider_path_buffer_temp := [dynamic]af.Vec2{}
-
 recalculate_object_end_time :: proc(beatmap: ^Beatmap, hit_object_index: int) {
     hit_object := beatmap.hit_objects[hit_object_index]
 
@@ -77,18 +75,18 @@ recalculate_object_end_position :: proc(beatmap: ^Beatmap, i: int, slider_lod: f
 // call calculate_object_end_time on the object at least once beforehand
 calculate_opacity :: proc(
     beatmap: ^Beatmap,
-    hit_object: HitObject,
-    current_time, fade_in, fade_out: f64,
+    start_time, end_time, current_time: f64,
+    fade_in, fade_out: f64,
 ) -> f32 {
     zero: f64 = 0
     one: f64 = 1
 
-    if current_time <= hit_object.start_time {
-        t := min(1, max(0, (hit_object.start_time - current_time) / fade_in))
+    if current_time <= start_time {
+        t := min(1, max(0, (start_time - current_time) / fade_in))
         return f32(math.lerp(one, zero, t))
     }
 
-    end_time := hit_object.end_time
+    end_time := end_time
     if current_time <= end_time {
         return 1
     }
@@ -129,7 +127,6 @@ recalculate_slider_path :: proc(beatmap: ^Beatmap, hit_object_index: int, lod: f
     generate_slider_path(
         hit_object.slider_nodes,
         &hit_object.slider_path,
-        &slider_path_buffer_temp,
         hit_object.slider_length,
         lod,
     )
