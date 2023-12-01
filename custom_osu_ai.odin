@@ -480,7 +480,7 @@ cursor_strategy_physical_accelerator :: proc(
             )
         }
 
-        SMOOTHING_FACTOR :: 0.5
+        SMOOTHING_FACTOR :: 0.2
         if linalg.length(target_pos - current_pos) > SMOOTHING_FACTOR * circle_radius {
             target_pos +=
                 linalg.normalize(current_pos - target_pos) * SMOOTHING_FACTOR * circle_radius
