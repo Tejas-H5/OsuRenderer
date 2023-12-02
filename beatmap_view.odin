@@ -220,14 +220,6 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
             // draw slider end
             slider_path_buffer := hit_object.slider_path
 
-            // draw the slider body to a framebuffer, then blit that framebuffer to the screen with an opacity
-            af.resize_framebuffer(
-                slider_framebuffer,
-                int(af.window_rect.width),
-                int(af.window_rect.height),
-            )
-            af.set_framebuffer(slider_framebuffer)
-            af.clear_screen({0, 0, 0, 0})
             stroke_slider_path :: proc(
                 slider_path_buffer: [dynamic]af.Vec2,
                 thickness: f32,
@@ -247,9 +239,38 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
                 }
             }
 
+            // init the framebuffer
+            af.resize_framebuffer(
+                slider_framebuffer,
+                int(af.window_rect.width),
+                int(af.window_rect.height),
+            )
+
+            // draw slider inner path to the framebuffer, and draw it
+            af.set_framebuffer(slider_framebuffer)
+            af.clear_screen({0, 0, 0, 0})
+            af.set_draw_params(color = af.Color{0.1, 0.1, 0.1, 1})
+            stroke_slider_path(
+                slider_path_buffer,
+                circle_radius * 2,
+                slider_end_length,
+                stack_offset_vec,
+            )
+            af.set_framebuffer(nil)
+            af.set_layout_rect(af.window_rect, false)
+            af.set_draw_params(
+                color = {1, 1, 1, 0.7 * opacity},
+                texture = slider_framebuffer_texture,
+            )
+            af.draw_rect(af.im, af.window_rect)
+            af.set_layout_rect(original_layout_rect, false)
+
+            // draw slider outline to the framebuffer, and draw it
+            af.set_framebuffer(slider_framebuffer)
+            af.clear_screen({0, 0, 0, 0})
             af.set_stencil_mode(.WriteOnes)
             af.clear_stencil()
-            af.set_draw_params(color = af.Color{.2, .2, .2, 0.5})
+            af.set_draw_params(color = af.Color{0, 0, 0, 0})
             stroke_slider_path(
                 slider_path_buffer,
                 (circle_radius - thickness) * 2,
@@ -271,6 +292,7 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
             af.set_draw_params(color = {1, 1, 1, opacity}, texture = slider_framebuffer_texture)
             af.draw_rect(af.im, af.window_rect)
             af.set_layout_rect(original_layout_rect, false)
+
             // slider ball
             slider_ball_osu_pos, repeat, has_slider_ball := osu.get_slider_ball_pos(
                 hit_object,

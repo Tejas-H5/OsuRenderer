@@ -8,7 +8,14 @@ TODO:
 - AI improvements
     - [] AI should also start clicking the circles and sliders. It occasionally misses sometimes, so we should track this too
         ...
+
+- UI
+    - [] It should look a bit better imo
+        - [] Background image
+            ...
     - [] AI should have sliders and stuff to control their values
+    - [] A G-meter
+    - [] Export osu replay files
 
 - General issues
 
@@ -37,7 +44,6 @@ TODO:
         - [] basic support
         - [] load them from the beatmap
 
-- [] Background image
 - Music
     - [x] basic support
     - [] load and use the beatmap music
@@ -48,6 +54,3 @@ TODO:
 - AI cursor
     - [x] osu! auto mod movement
     - [x] more natural looking osu AI movement ... (ongoing)
-
-- UI
-    - [] It should look a bit better imo
