@@ -5,6 +5,7 @@ import "audio"
 import "core:fmt"
 import "core:math"
 import "core:math/linalg"
+import "core:math/rand"
 import "core:os"
 import "osu"
 
@@ -123,9 +124,9 @@ PointSimulation :: struct {
     pos, vel, accel:    af.Vec2,
     targets:            [dynamic]af.Vec2,
     color:              af.Color,
-    use_dynamic_axis:   bool,
     total_time_taken:   f32,
     current_time_taken: f32,
+    accel_params:       AccelParams,
 }
 
 
@@ -133,21 +134,35 @@ target_radius: f32 = 100
 radius_thinggy: f32 = 10
 point_simulations: [2]PointSimulation
 
-sec_between_targets: f32 = 0.3
-accel_limit: f32 = 50000
+sec_between_targets: f32 = 0.0
 
 // p_t: f32
 first := true
 motion_integration_test :: proc() -> bool {
     af.clear_screen({})
 
-    point_simulations[0].color = af.Color{0, 0, 1, 1}
-    point_simulations[0].use_dynamic_axis = false
-    point_simulations[1].color = af.Color{1, 0, 0, 1}
-    point_simulations[1].use_dynamic_axis = true
+    if af.key_just_pressed(.N) {
+        for i in 0 ..< 10 {
+            p := af.Vec2{rand.float32() * af.vw(), rand.float32() * af.vh()}
+            for i in 0 ..< len(point_simulations) {
+                append(&point_simulations[i].targets, p)
+            }
+        }
+    }
 
     adjust_value_with_mousewheel("sec_between_targets", &sec_between_targets, .S, 0.05)
-    adjust_value_with_mousewheel("accel_limit", &accel_limit, .D, 0.05 * accel_limit)
+    adjust_value_with_mousewheel(
+        "accel_limit",
+        &point_simulations[1].accel_params.max_accel,
+        .D,
+        0.05 * point_simulations[1].accel_params.max_accel,
+    )
+    adjust_value_with_mousewheel(
+        "sim[1].overshoot_param",
+        &point_simulations[1].accel_params.overshoot_multuplier,
+        .F,
+        0.1,
+    )
 
     if af.key_just_pressed(.Escape) {
         return false
@@ -214,8 +229,7 @@ motion_integration_test :: proc() -> bool {
                 next_target,
                 remaining_time,
                 sec_between_targets,
-                accel_limit,
-                point_simulations[i].use_dynamic_axis,
+                point_simulations[i].accel_params,
             )
             integrate_motion(
                 &point_simulations[i].vel,
@@ -268,6 +282,11 @@ main :: proc() {
 
     set_screen(.BeatmapPickeView)
     af.run_main_loop(render)
+
+    // point_simulations[0].color = af.Color{0, 0, 1, 1}
+    // point_simulations[0].overshoot_multuplier = 1.2
+    // point_simulations[1].color = af.Color{1, 0, 0, 1}
+    // point_simulations[1].overshoot_multuplier = 1.2
     // af.run_main_loop(motion_integration_test)
 }
 

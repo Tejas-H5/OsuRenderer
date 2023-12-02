@@ -167,20 +167,43 @@ get_expected_cursor_pos :: proc(
 // 0.008 s = 120fps
 AI_REPLAY_DT :: 0.008
 AIReplay :: struct {
-    replay:              [dynamic]osu.Vec2,
+    replay:              [dynamic]OsuPlayerInput,
     replay_seek_from:    int,
     last_object_started: int,
 
     // only used by functions that are physics-based.
     velocity:            osu.Vec2,
-    max_accel:           f32,
+    accel_params:        AccelParams,
 }
+
+
+AccelParams :: struct {
+    max_accel_circle:     f32,
+    max_accel_slider:     f32,
+    use_max_accel:        bool,
+    overshoot_multuplier: f32,
+    axis_count:           int,
+    stop_distance:        f32,
+    lazy_factor_circle:   f32,
+    lazy_factor_slider:   f32,
+
+    // computed
+    stop_distance_rad:    f32,
+    max_accel:            f32,
+}
+
 
 get_replay_duration :: proc(replay: [dynamic]osu.Vec2) -> f64 {
     return f64(len(replay)) * AI_REPLAY_DT
 }
 
-CursorMotionStragetgyProc ::
+OsuPlayerInput :: struct {
+    left_click:  bool,
+    right_click: bool,
+    pos:         af.Vec2,
+}
+
+OsuAIMovementProc ::
     (proc(
             ai_replay: ^AIReplay,
             beatmap: ^osu.Beatmap,
@@ -195,10 +218,10 @@ get_ai_replay_cursor_pos :: proc(
     t: f64,
     circle_radius: f32,
     seek_from: int,
-    cursor_motion_strategy: (CursorMotionStragetgyProc),
-) -> osu.Vec2 {
+    movement_fn: (OsuAIMovementProc),
+) -> OsuPlayerInput {
     if len(beatmap.hit_objects) == 0 {
-        return PLAYFIELD_CENTER
+        return {pos = PLAYFIELD_CENTER}
     }
 
     // TODO: optimize
@@ -217,7 +240,7 @@ get_ai_replay_cursor_pos :: proc(
         if i == 0 {
             first_object := beatmap.hit_objects[0]
             first_pos := get_start_position_on_object(first_object, circle_radius)
-            append(&ai_replay.replay, first_pos)
+            append(&ai_replay.replay, OsuPlayerInput{pos = first_pos})
             continue
         }
 
@@ -228,7 +251,7 @@ get_ai_replay_cursor_pos :: proc(
             ai_replay.last_object_started,
         )
 
-        next_point := cursor_motion_strategy(
+        next_point := movement_fn(
             ai_replay,
             beatmap,
             t_i,
@@ -236,11 +259,16 @@ get_ai_replay_cursor_pos :: proc(
             ai_replay.last_object_started,
         )
 
-        append(&ai_replay.replay, next_point)
+        // TODO: left_click, right_click
+        input := OsuPlayerInput {
+            pos = next_point,
+        }
+
+        append(&ai_replay.replay, input)
     }
 
     if (len(ai_replay.replay) == 0) {
-        return PLAYFIELD_CENTER
+        return {pos = PLAYFIELD_CENTER}
     }
 
     if (len(ai_replay.replay) == 1) {
@@ -261,11 +289,11 @@ get_ai_replay_cursor_pos :: proc(
         t,
     )
 
-    return linalg.lerp(
-        ai_replay.replay[ai_replay.replay_seek_from],
-        ai_replay.replay[ai_replay.replay_seek_from + 1],
-        f32(lerp_t),
-    )
+    res := ai_replay.replay[ai_replay.replay_seek_from]
+    p1 := ai_replay.replay[ai_replay.replay_seek_from + 1].pos
+
+    res.pos = linalg.lerp(res.pos, p1, f32(lerp_t))
+    return res
 }
 
 
@@ -277,7 +305,7 @@ reset_ai_replay :: proc(ai_replay: ^AIReplay) {
 }
 
 ai_replay_last_pos :: proc(ai_replay: ^AIReplay) -> osu.Vec2 {
-    return ai_replay.replay[len(ai_replay.replay) - 1]
+    return ai_replay.replay[len(ai_replay.replay) - 1].pos
 }
 
 cursor_motion_strategy_automod :: proc(
@@ -385,12 +413,11 @@ get_cursor_pos_smoothed_automod_ai :: proc(
         // move a little closer to the center, while we're here
         CENTER_SPEED :: 15
         new_dir_len := move_towards(dir_len, 0, CENTER_SPEED * AI_REPLAY_DT)
-        return required_position + (linalg.normalize(dir) * new_dir_len), idx
+        return required_position + (linalg.normalize0(dir) * new_dir_len), idx
     }
 
-    return required_position + (linalg.normalize(dir) * max_allowable_dir_len), idx
+    return required_position + (linalg.normalize0(dir) * max_allowable_dir_len), idx
 }
-
 
 // Accelerate to the current position with a large yet finite amount of force.
 // still needs some polishing imo, but looks quite realistic as it is purely physics-sim based
@@ -423,67 +450,115 @@ cursor_strategy_physical_accelerator :: proc(
         target_pos, next_target_pos: osu.Vec2
         time_to_target, time_to_next_target: f32
         target_handled, next_target_handled: bool
+        slider_aim: bool
         if hit_objects[i].start_time <= t && t <= hit_objects[i].end_time {
-            SLIDER_LOOKAHEAD :: 0.05
-
-            // we are on a slider or a spinner
-            target_pos, target_handled = get_position_on_object(
+            ok: bool
+            target_pos, next_target_pos, ok = get_target_positions(
                 hit_objects[i],
-                t + SLIDER_LOOKAHEAD,
+                t,
                 circle_radius,
             )
-
-            if !target_handled {
-                // ignore this slider or spinner, you probably dont have enough time to hit the slider-end
-                i += 1
+            if ok {
+                target_handled = true
+                next_target_handled = true
+                if hit_objects[i].type == .Slider {
+                    slider_aim = true
+                }
             } else {
-                time_to_target = 0
+                i += 1
+            }
 
-                ok2: bool
-                next_target_pos, ok2 = get_position_on_object(
-                    hit_objects[i],
-                    t + SLIDER_LOOKAHEAD,
+            get_target_positions :: proc(
+                hit_object: osu.HitObject,
+                t: f64,
+                circle_radius: f32,
+            ) -> (
+                osu.Vec2,
+                osu.Vec2,
+                bool,
+            ) {
+                if hit_object.type == .Spinner {
+                    pos_on_spinner, _ := get_position_on_object(hit_object, t, circle_radius)
+                    next_pos_on_spinner, ok := get_position_on_object(hit_object, t, circle_radius)
+                    if !ok {
+                        next_pos_on_spinner = get_end_position_on_object(hit_object, circle_radius)
+                    }
+
+                    return pos_on_spinner, next_pos_on_spinner, true
+                }
+
+                if hit_object.type != .Slider {
+                    return {}, {}, false
+                }
+
+                SLIDER_LENIENCY_SECONDS :: 0.01
+
+                next_pos_on_slider, has_next_pos_on_slider := get_position_on_object(
+                    hit_object,
+                    t + SLIDER_LENIENCY_SECONDS,
                     circle_radius,
                 )
-                if ok2 {
-                    next_target_handled = true
-                    time_to_next_target = SLIDER_LOOKAHEAD
+
+                if !has_next_pos_on_slider {
+                    return {}, {}, false
                 }
+
+                pos_on_slider, _ := get_position_on_object(hit_object, t, circle_radius)
+                if !has_next_pos_on_slider {
+                    next_pos_on_slider = get_end_position_on_object(hit_object, circle_radius)
+                }
+
+                return pos_on_slider, next_pos_on_slider, true
             }
         }
 
-        reached_bounds := false
-
-        if !target_handled && i < len(hit_objects) {
-            if i < len(hit_objects) {
-                // we are on a circle
-                target_pos = get_start_position_on_object(hit_objects[i], circle_radius)
-                time_to_target = f32(hit_objects[i].start_time - t)
-            } else {
-                reached_bounds = true
-            }
+        if i >= len(hit_objects) {
+            i = len(hit_objects) - 1
         }
 
-        if !next_target_handled {
-            if i + 1 < len(hit_objects) {
-                next_target_pos = get_start_position_on_object(hit_objects[i + 1], circle_radius)
-            } else {
-                reached_bounds = true
-            }
+        if !target_handled {
+            // we are on a circle
+            target_pos = get_start_position_on_object(hit_objects[i], circle_radius)
+            time_to_target = f32(hit_objects[i].start_time - t)
         }
 
-        if reached_bounds {
-            HARDCODED_TIME :: 0.5
-            next_target_pos = PLAYFIELD_CENTER
-            time_to_next_target = f32(
-                hit_objects[len(hit_objects) - 1].end_time + HARDCODED_TIME - t,
+        if !next_target_handled && i < len(hit_objects) - 1 {
+            next_target_pos = get_start_position_on_object(hit_objects[i + 1], circle_radius)
+        }
+
+        ai_replay.accel_params.stop_distance_rad =
+            circle_radius * ai_replay.accel_params.stop_distance
+
+        SLIDER_ACCEL_FADE_TIME :: 0.1
+
+        lazy_factor: f32
+        slider_lazy_factor := ai_replay.accel_params.lazy_factor_slider
+        circle_lazy_factor := ai_replay.accel_params.lazy_factor_circle
+        slider_accel := ai_replay.accel_params.max_accel_slider
+        circle_accel := ai_replay.accel_params.max_accel_circle
+        if hit_objects[i].type == .Circle {
+            ai_replay.accel_params.max_accel = circle_accel
+            lazy_factor = circle_lazy_factor
+        } else if hit_objects[i].type == .Slider {
+            t := fade_in_fade_out_curve(
+                hit_objects[i].start_time,
+                hit_objects[i].end_time,
+                t,
+                SLIDER_ACCEL_FADE_TIME,
+                SLIDER_ACCEL_FADE_TIME,
             )
+
+            ai_replay.accel_params.max_accel = math.lerp(circle_accel, slider_accel, f32(t))
+            lazy_factor = math.lerp(circle_lazy_factor, slider_lazy_factor, f32(t))
         }
 
-        SMOOTHING_FACTOR :: 0.2
-        if linalg.length(target_pos - current_pos) > SMOOTHING_FACTOR * circle_radius {
-            target_pos +=
-                linalg.normalize(current_pos - target_pos) * SMOOTHING_FACTOR * circle_radius
+        if linalg.length(target_pos - current_pos) > circle_radius * abs(lazy_factor) {
+            target_pos =
+                target_pos +
+                linalg.normalize0(current_pos - target_pos) * lazy_factor * circle_radius
+        } else {
+            // slowly move towards the center while we're here
+            target_pos = linalg.lerp(current_pos, target_pos, 0.2 * AI_REPLAY_DT)
         }
 
         accel := get_cursor_acceleration(
@@ -493,8 +568,7 @@ cursor_strategy_physical_accelerator :: proc(
             next_target_pos,
             time_to_target,
             time_to_next_target,
-            ai_replay.max_accel,
-            use_dynamic_axis = true,
+            ai_replay.accel_params,
         )
 
         integrate_motion(&ai_replay.velocity, &current_pos, accel, real_dt)
@@ -510,25 +584,26 @@ integrate_motion :: proc(vel, pos: ^osu.Vec2, accel: osu.Vec2, dt: f32) {
 }
 
 
-// TODO: right now our axes are the x and y global. But we could just as easily use a coordinate system that is aligned with 
-// pos->target, right?
 get_cursor_acceleration :: proc(
     pos, velocity: osu.Vec2,
     target, next_target: osu.Vec2,
     time_to_target, time_to_next_target: f32,
-    max_accel: f32,
-    use_dynamic_axis: bool,
+    accel_params: AccelParams,
 ) -> osu.Vec2 {
     axis_1 := osu.Vec2{1, 0}
-    // dynamic_axis := linalg.normalize(velocity)
-    // dynamic_axis := next_target - target
-    pos_to_target := target - pos // NOTE: this on it's own is a bad dynamic axis that is prone to starting orbits
-    segments_angle: f32 = math.PI / 3
+    pos_to_target := target - pos
+    target := target
+    segments_angle: f32 = math.PI / f32(accel_params.axis_count)
     dynamic_axis := angle_vec(
-        math.floor(math.atan2(pos_to_target.y, pos_to_target.x) / segments_angle) * segments_angle,
+        math.floor(math.atan2(pos_to_target.y, pos_to_target.x) / segments_angle) *
+            segments_angle +
+        (math.PI / 2),
         1,
     )
-    if use_dynamic_axis && linalg.length(dynamic_axis) > 0.0001 {
+
+    if linalg.length(dynamic_axis) > 0.0001 {
+        // Use a dynamic acceleration coordinalte system axis that angle-snaps to segment_angle increments. 
+        // This works a lot better than just using target - pos which is prone to orbitals, or using just the usual {0, 1} and {1, 0}.
         axis_1 = linalg.normalize(dynamic_axis)
     }
 
@@ -542,7 +617,7 @@ get_cursor_acceleration :: proc(
         time_to_target,
         time_to_next_target,
         axis_1,
-        max_accel,
+        accel_params,
     )
 
     a2, t2 := get_cursor_acceleration_axis(
@@ -553,7 +628,7 @@ get_cursor_acceleration :: proc(
         time_to_target,
         time_to_next_target,
         axis_2,
-        max_accel,
+        accel_params,
     )
 
     if t1 > t2 {
@@ -565,7 +640,7 @@ get_cursor_acceleration :: proc(
             t1,
             time_to_next_target,
             axis_2,
-            max_accel,
+            accel_params,
         )
     } else {
         a1, _ = get_cursor_acceleration_axis(
@@ -576,7 +651,7 @@ get_cursor_acceleration :: proc(
             t2,
             time_to_next_target,
             axis_1,
-            max_accel,
+            accel_params,
         )
     }
 
@@ -586,14 +661,15 @@ get_cursor_acceleration :: proc(
     // af.draw_line(af.im, pos, pos + (a1 * axis_1), 10, .None)
     // af.draw_line(af.im, pos, pos + (a2 * axis_2), 10, .None)
 
-    return a_vec
+    // overshoot the acceleration on purpose, so we get there on time
+    return a_vec * accel_params.overshoot_multuplier
 
     get_cursor_acceleration_axis :: proc(
         pos, velocity: osu.Vec2,
         target, next_target: osu.Vec2,
         time_to_target, time_to_next_target: f32,
         axis: osu.Vec2,
-        max_accel: f32,
+        accel_params: AccelParams,
     ) -> (
         f32,
         f32,
@@ -614,12 +690,8 @@ get_cursor_acceleration :: proc(
             v,
             time_to_target,
             time_to_next_target,
-            max_accel,
+            accel_params,
         )
-
-        if abs(accel) > max_accel {
-            af.debug_log("bruh")
-        }
 
         t := time_constant_accel(accel, v, s1 - s)
 
@@ -629,13 +701,13 @@ get_cursor_acceleration :: proc(
     get_cursor_acceleration_axis_1d :: proc(
         s, s1, s2, v: f32,
         time_to_target, time_to_next_target: f32,
-        max_accel: f32,
+        accel_params: AccelParams,
     ) -> f32 {
         dist := s1 - s
-        accel_amount := max_accel
+        accel_amount := accel_params.max_accel
         accel_sign := math.sign(dist)
 
-        if v * dist < 0 {
+        if v * dist < 0 && abs(dist) < accel_params.stop_distance_rad {
             // always accelerate at full throttle if we are going the wrong way
             return accel_sign * accel_amount
         }
@@ -655,7 +727,7 @@ get_cursor_acceleration :: proc(
         }
 
 
-        decel := -accel_sign * max_accel
+        decel := -accel_sign * accel_params.max_accel
         breaking_time := abs(v - wanted_end_velocity) / abs(decel)
         breaking_distance := distance_constant_accel(decel, v, breaking_time)
         if (dist < 0 && breaking_distance - TOLERANCE <= dist) ||
@@ -673,7 +745,7 @@ get_cursor_acceleration :: proc(
         // return abs(accel_amount) * accel_sign
 
         accel_amount = accel_constant_accel(dist, v, time_to_target)
-        return min(max_accel, abs(accel_amount)) * accel_sign
+        return min(accel_params.max_accel, abs(accel_amount)) * accel_sign
     }
 }
 
@@ -690,4 +762,18 @@ distance_constant_accel :: proc(a, v0, t: f32) -> f32 {
 time_constant_accel :: proc(a, v, s: f32) -> f32 {
     rt1, rt2 := quadratic_equation(0.5 * a, v, -s)
     return max(rt1, rt2)
+}
+
+
+cursor_strategy_manual_input :: proc(
+    ai_replay: ^AIReplay,
+    beatmap: ^osu.Beatmap,
+    t: f64,
+    circle_radius: f32,
+    seek_from: int,
+) -> osu.Vec2 {
+    cursor_pos := af.get_mouse_pos()
+    cursor_pos_osu := view_to_osu(cursor_pos)
+
+    return cursor_pos_osu
 }

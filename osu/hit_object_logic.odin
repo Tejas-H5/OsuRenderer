@@ -72,27 +72,49 @@ recalculate_object_end_position :: proc(beatmap: ^Beatmap, i: int, slider_lod: f
     }
 }
 
+
+inv_lerp_f64 :: proc(a, b, val: f64) -> (f64, bool) {
+    in_range := a <= val && val <= b
+    if !in_range {
+        return 0, false
+    }
+
+    return (val - a) / (b - a), true
+}
+
 // call calculate_object_end_time on the object at least once beforehand
 calculate_opacity :: proc(
     beatmap: ^Beatmap,
     start_time, end_time, current_time: f64,
+    preempt: f64,
     fade_in, fade_out: f64,
 ) -> f32 {
     zero: f64 = 0
     one: f64 = 1
 
-    if current_time <= start_time {
-        t := min(1, max(0, (start_time - current_time) / fade_in))
-        return f32(math.lerp(one, zero, t))
+    fade_in_start := start_time - preempt
+    fade_in_end := start_time - preempt + fade_in
+
+    t: f64
+    ok: bool
+    t, ok = inv_lerp_f64(fade_in_start, fade_in_end, current_time)
+    if ok {
+        return f32(math.lerp(zero, one, t))
     }
 
-    end_time := end_time
-    if current_time <= end_time {
+    fade_out_start := end_time
+    fade_out_end := end_time + fade_out
+
+    if fade_in_end <= current_time && current_time <= fade_out_start {
         return 1
     }
 
-    t := min(1, max(0, (current_time - end_time) / fade_out))
-    return f32(math.lerp(one, zero, t))
+    t, ok = inv_lerp_f64(fade_out_start, fade_out_end, current_time)
+    if ok {
+        return f32(math.lerp(one, zero, t))
+    }
+
+    return 0
 }
 
 recalculate_combo_numbers :: proc(beatmap: ^Beatmap, starting_from: int) {

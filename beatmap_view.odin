@@ -25,32 +25,60 @@ beatmap: ^osu.Beatmap
 
 automod_replay: AIReplay
 custom_ai_replay: AIReplay
-pure_acceleration_based_replay: AIReplay
 
 ais := []AIInfo {
      {
-        name = "Automod",
-        ai_fn = cursor_motion_strategy_automod,
-        replay_state = &automod_replay,
-        color = {0, 1, 1, 1},
-    },
-     {
-        name = "Automod Smoothed",
-        ai_fn = cursor_strategy_lazy_position,
-        replay_state = &custom_ai_replay,
-        color = {1, 0, 0, 1},
-    },
-     {
-        name = "Physics-based acceleration integrator",
+        name = "Accelerator 1",
         ai_fn = cursor_strategy_physical_accelerator,
-        replay_state = &pure_acceleration_based_replay,
+        replay_state = AIReplay {
+            accel_params = AccelParams {
+                lazy_factor_circle = 0.5,
+                lazy_factor_slider = 1.5,
+                max_accel_circle = 120000,
+                max_accel_slider = 30000,
+                overshoot_multuplier = 1,
+                use_max_accel = false,
+                axis_count = 6,
+                stop_distance = 3,
+            },
+        },
         color = {0, 1, 0, 1},
     },
+     {
+        name = "Accelerator 2",
+        ai_fn = cursor_strategy_physical_accelerator,
+        replay_state = AIReplay {
+            accel_params = AccelParams {
+                lazy_factor_circle = 0.5,
+                lazy_factor_slider = 1.5,
+                max_accel_circle = 120000,
+                max_accel_slider = 30000,
+                overshoot_multuplier = 1,
+                use_max_accel = false,
+                axis_count = 6,
+                stop_distance = 3,
+            },
+        },
+        color = {0, 1, 1, 1},
+    },
+    //  {
+    //     name = "Manual input",
+    //     ai_fn = cursor_strategy_manual_input,
+    //     replay_state = AIReplay {
+    //         accel_params =  {
+    //             max_accel = 120000,
+    //             overshoot_multuplier = 1,
+    //             use_max_accel = true,
+    //             axis_count = 3,
+    //         },
+    //     },
+    //     color = {1, 1, 1, 1},
+    // },
 }
 
 AIInfo :: struct {
-    ai_fn:        CursorMotionStragetgyProc,
-    replay_state: ^AIReplay,
+    ai_fn:        OsuAIMovementProc,
+    replay_state: AIReplay,
     is_hidden:    bool,
     color:        af.Color,
     name:         string,
@@ -62,8 +90,6 @@ current_beatmap_filename: string
 beatmap_view_error: string
 beatmap_view_error_audio: audio.AudioError
 
-seek_debounce_timer: f32 = 0
-seek_debounce_timer_amount :: 1
 draw_control_points := false
 
 set_beatmap_view_error :: proc(msg: string, audio_err: audio.AudioError) {
@@ -83,6 +109,12 @@ osu_to_view :: proc(pos: af.Vec2) -> af.Vec2 {
     return {af.vw() * x / OSU_WIDTH, af.vh() * (1 - y / OSU_HEIGHT)}
 }
 
+view_to_osu :: proc(pos: af.Vec2) -> af.Vec2 {
+    x := pos.x
+    y := pos.y
+    return {OSU_WIDTH * x / af.vw(), OSU_HEIGHT * (1 - y / af.vh())}
+}
+
 osu_to_view_dir :: proc(dir: af.Vec2) -> af.Vec2 {
     return osu_to_view(dir)
 }
@@ -93,6 +125,7 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
         beatmap.hit_objects[index].start_time,
         beatmap.hit_objects[index].end_time,
         beatmap_time,
+        preempt,
         fade_in,
         fade_in,
     )
@@ -101,9 +134,12 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
         beatmap.hit_objects[index].start_time,
         beatmap.hit_objects[index].start_time,
         beatmap_time,
+        preempt,
         fade_in,
         fade_in,
     )
+
+    preempt_start := beatmap.hit_objects[index].start_time - preempt
 
     // TODO: move
     hit_object := beatmap.hit_objects[index]
@@ -177,14 +213,7 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
 
         slider_end_length := hit_object.slider_length
         if beatmap_time < hit_object.start_time {
-            snake_duration :: 0.2
-            t: f32 =
-                1 -
-                math.min(
-                    1,
-                    math.max(0, -f32(beatmap_time - hit_object.start_time) / snake_duration),
-                )
-            slider_end_length = t * hit_object.slider_length
+            slider_end_length = opacity * hit_object.slider_length
         }
 
         if len(hit_object.slider_path) >= 2 {
@@ -310,9 +339,10 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
 
     if hit_object.type == .Circle ||
        (hit_object.type == .Slider && beatmap_time < hit_object.start_time) {
+        // draw circle or slider head
+
         opacity := start_opacity
 
-        // draw circle or slider head on top of the bezier curve
         af.set_draw_params(color = af.Color{1, 1, 1, 1 * opacity}, texture = nil)
         af.draw_circle_outline(af.im, circle_pos, circle_radius - thickness, 64, thickness)
 
@@ -324,23 +354,26 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
 
         nc_number_text_size := circle_radius
         af.set_draw_color(color = {1, 1, 1, opacity})
-        af.draw_font_text_pivoted(
+        res := af.draw_font_text_pivoted(
             af.im,
             source_code_pro_regular,
             fmt.tprintf("%d", hit_object.combo_number),
             nc_number_text_size,
             circle_pos,
-            {0.6, 0.5},
+            {0.5, 0.5},
         )
 
-        if beatmap_time < hit_object.start_time && beatmap_time + preempt > hit_object.start_time {
-            approach_circle_thickness :: 5
 
-            approach_circle_radius_max := circle_radius * 4
+        if preempt_start < beatmap_time && beatmap_time < hit_object.start_time {
+            approach_circle_thickness :: 8
+
+            approach_circle_radius_max := circle_radius * 3
+            ac_start := preempt_start
+            ac_end := hit_object.start_time
             approach_circle_radius := math.lerp(
-                circle_radius,
                 approach_circle_radius_max,
-                f32((hit_object.start_time - beatmap_time) / preempt),
+                circle_radius,
+                f32(inv_lerp(ac_start, ac_end, beatmap_time)),
             )
 
             af.set_draw_params(color = {1, 1, 1, opacity})
@@ -374,6 +407,7 @@ draw_hit_objects :: proc(beatmap: ^osu.Beatmap, first, last: int, preempt, fade_
             beatmap.hit_objects[i].start_time,
             beatmap.hit_objects[i].end_time,
             beatmap_time,
+            preempt,
             fade_in,
             fade_in,
         )
@@ -385,6 +419,7 @@ draw_hit_objects :: proc(beatmap: ^osu.Beatmap, first, last: int, preempt, fade_
                 beatmap.hit_objects[i + 1].start_time,
                 beatmap.hit_objects[i + 1].end_time,
                 beatmap_time,
+                preempt,
                 fade_in,
                 fade_in,
             )
@@ -430,14 +465,12 @@ beatmap_view_cleanup :: proc() {
 }
 
 reset_ai_replays :: proc() {
-    for ai in ais {
-        reset_ai_replay(ai.replay_state)
+    for i in 0 ..< len(ais) {
+        reset_ai_replay(&ais[i].replay_state)
     }
 }
 
 load_current_beatmap :: proc() {
-    pure_acceleration_based_replay.max_accel = 40000
-
     beatmap_time = 0
     wanted_music_time = 0
 
@@ -535,10 +568,10 @@ draw_beatmap_view :: proc() {
 
     process_input :: proc() {
         if adjust_value_with_mousewheel(
-               "max_accel",
-               &pure_acceleration_based_replay.max_accel,
-               .S,
-               1000,
+               "overshoot_amnt",
+               &ais[0].replay_state.accel_params.overshoot_multuplier,
+               .D,
+               0.01,
            ) {
             return
         }
@@ -570,7 +603,6 @@ draw_beatmap_view :: proc() {
         }
         if abs(af.mouse_wheel_notches) > 0.01 {
             wanted_music_time -= f64(af.mouse_wheel_notches) * scroll_speed
-            seek_debounce_timer = seek_debounce_timer_amount
         }
 
         if af.key_just_pressed(.C) {
@@ -595,12 +627,6 @@ draw_beatmap_view :: proc() {
             }
         } else {
             beatmap_time = math.lerp(beatmap_time, wanted_music_time, 20 * f64(af.delta_time))
-
-            if seek_debounce_timer > 0 {
-                seek_debounce_timer -= af.delta_time
-            } else {
-                audio.set_playback_seconds(wanted_music_time)
-            }
         }
     }
 
@@ -610,6 +636,7 @@ draw_beatmap_view :: proc() {
         first_visible, last_visible: int,
         t0, t1:                      f64,
     }
+
 
     draw_osu_beatmap :: proc(info: ^CurrentBeatmapInfo) {
         preempt := f64(osu.get_preempt(beatmap))
@@ -623,9 +650,10 @@ draw_beatmap_view :: proc() {
         af.draw_rect_outline(af.im, {0, 0, af.vw(), af.vh()}, 4)
 
         fade_in := f64(osu.get_fade_in(beatmap))
+        fade_out := fade_in
 
-        info.t0 = beatmap_time - preempt
-        info.t1 = beatmap_time + fade_in
+        info.t0 = beatmap_time - fade_out
+        info.t1 = beatmap_time + preempt
 
         beatmap_first_visible = osu.beatmap_get_first_visible(
             beatmap,
@@ -640,6 +668,7 @@ draw_beatmap_view :: proc() {
 
     draw_ai_cursors :: proc(ais: []AIInfo) {
         circle_radius_osu := osu.get_circle_radius(beatmap)
+        circle_radius := osu_to_view_dir({circle_radius_osu, 0}).x
         last_generated_slider := -1
         cursor_size := osu_to_view_dir({10, 0}).x
 
@@ -648,19 +677,20 @@ draw_beatmap_view :: proc() {
             afterimage_strength: f32 =
                 f32(CURSOR_ANALYSIS_AFTERIMAGES - i) / f32(CURSOR_ANALYSIS_AFTERIMAGES)
 
-            for ai in ais {
-                pos := get_ai_replay_cursor_pos(
-                    ai.replay_state,
+            for i in 0 ..< len(ais) {
+                recorded_input := get_ai_replay_cursor_pos(
+                    &ais[i].replay_state,
                     beatmap,
                     t,
                     circle_radius_osu,
                     beatmap_first_visible,
-                    ai.ai_fn,
+                    ais[i].ai_fn,
                 )
-                col := ai.color
+                pos := recorded_input.pos
+                col := ais[i].color
                 col.w = afterimage_strength
                 af.set_draw_params(color = col)
-                if !ai.is_hidden {
+                if !ais[i].is_hidden {
                     af.draw_circle(af.im, osu_to_view(pos), cursor_size, 64)
                 }
             }
@@ -681,12 +711,13 @@ draw_beatmap_view :: proc() {
                 0,
                 replay.replay_seek_from - replay_hindsight,
             ) ..< replay.replay_seek_from {
-                p0 := osu_to_view(replay.replay[i])
-                p1 := osu_to_view(replay.replay[i + 1])
+                p0 := osu_to_view(replay.replay[i].pos)
+                p1 := osu_to_view(replay.replay[i + 1].pos)
 
                 thickness := linalg.length(p0 - p1) * 0.5
-
-                af.draw_line(af.im, p0, p1, thickness, .None)
+                if thickness < circle_radius {
+                    af.draw_line(af.im, p0, p1, thickness, .None)
+                }
             }
         }
     }
@@ -711,6 +742,8 @@ draw_beatmap_view :: proc() {
 
         af.set_draw_color(color = af.Color{1, 0, 0, 1})
         x = draw_text(fmt.tprintf("%v <- %v -> %v", state.t0, beatmap_time, state.t1), x, y)
+        x = 0
+        y += line_height
         x = draw_text(
             fmt.tprintf(
                 " | objects %v to %v of %v",
@@ -724,10 +757,6 @@ draw_beatmap_view :: proc() {
 
         x = 0
         y += line_height
-        if seek_debounce_timer > 0 {
-            x = draw_text(fmt.tprintf("%vs till reseek", seek_debounce_timer), x, y)
-        }
-
         for ai in ais {
             x, y = 0, y + line_height
             af.set_draw_color(ai.color)

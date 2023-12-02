@@ -361,11 +361,17 @@ initialize :: proc(width: int, height: int) -> bool {
     return true
 }
 
-begin_frame :: proc() {
+
+@(private)
+internal_poll_events :: proc() {
     internal_update_key_inputs_before_poll()
     glfw.PollEvents()
     internal_update_mouse_input()
     internal_update_key_input()
+}
+
+begin_frame :: proc() {
+    internal_poll_events()
 
     w, h := glfw.GetWindowSize(window)
     window_rect.width = f32(w)
@@ -828,7 +834,7 @@ CapType :: enum {
     Circle,
 }
 
-draw_line :: proc(output: ^MeshBuffer, p0, p1: Vec2, thickness: f32, cap_type: CapType) {
+draw_line :: proc(output: ^MeshBuffer, p0, p1: Vec2, thickness: f32, cap_type: CapType = .None) {
     draw_cap :: proc(output: ^MeshBuffer, pos: Vec2, angle, thickness: f32, cap_type: CapType) {
         switch cap_type {
         case .None:
@@ -1166,6 +1172,15 @@ mouse_button_just_released :: proc(b: MBCode) -> bool {
 get_mouse_pos :: proc() -> Vec2 {
     return {internal_mouse_position.x - layout_rect.x0, internal_mouse_position.y - layout_rect.y0}
 }
+
+// same as get_mouse_pos, but polls events again.
+// osu! players often report that cranking up their game FPS to 1000fps makes the mouse cursor smoother,
+// and I would like to look into that a bit
+get_precise_mouse_pos :: proc() -> Vec2 {
+    internal_poll_events()
+    return {internal_mouse_position.x - layout_rect.x0, internal_mouse_position.y - layout_rect.y0}
+}
+
 
 set_mouse_position :: proc(pos: Vec2) {
     glfw.SetCursorPos(window, f64(pos.x), f64(pos.y))
