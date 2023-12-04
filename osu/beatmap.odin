@@ -641,14 +641,14 @@ beatmap_get_new_combo_start :: proc(beatmap: ^Beatmap, hit_object_index: int) ->
 }
 
 // https://osu.ppy.sh/wiki/en/Beatmap/Overall_difficulty
-get_hit_window_300 :: proc(beatmap: ^Beatmap) -> f32 {
-    return 80 - 6 * beatmap.OverallDifficulty
+get_hit_window_300 :: proc(beatmap: ^Beatmap) -> f64 {
+    return (80 - 6 * f64(beatmap.OverallDifficulty)) / 1000
 }
 
-get_hit_window_100 :: proc(beatmap: ^Beatmap) -> f32 {
-    return 140 - 8 * beatmap.OverallDifficulty
+get_hit_window_100 :: proc(beatmap: ^Beatmap) -> f64 {
+    return (140 - 8 * f64(beatmap.OverallDifficulty)) / 1000
 }
 
-get_hit_window_50 :: proc(beatmap: ^Beatmap) -> f32 {
-    return 200 - 10 * beatmap.OverallDifficulty
+get_hit_window_50 :: proc(beatmap: ^Beatmap) -> f64 {
+    return (200 - 10 * f64(beatmap.OverallDifficulty)) / 1000
 }

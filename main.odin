@@ -134,7 +134,10 @@ target_radius: f32 = 100
 radius_thinggy: f32 = 10
 point_simulations: [2]PointSimulation
 
-sec_between_targets: f32 = 0.0
+sec_between_targets: f32 = 0.2
+
+accel := [dynamic]af.Vec2{}
+velocity := [dynamic]af.Vec2{}
 
 // p_t: f32
 first := true
@@ -150,17 +153,11 @@ motion_integration_test :: proc() -> bool {
         }
     }
 
-    adjust_value_with_mousewheel("sec_between_targets", &sec_between_targets, .S, 0.05)
+    adjust_value_with_mousewheel("sec_between_targets", &sec_between_targets, .S, 0.01)
     adjust_value_with_mousewheel(
-        "accel_limit",
-        &point_simulations[1].accel_params.max_accel,
+        "delta accel fac",
+        &point_simulations[0].accel_params.delta_accel_factor,
         .D,
-        0.05 * point_simulations[1].accel_params.max_accel,
-    )
-    adjust_value_with_mousewheel(
-        "sim[1].overshoot_param",
-        &point_simulations[1].accel_params.overshoot_multuplier,
-        .F,
         0.1,
     )
 
@@ -169,6 +166,41 @@ motion_integration_test :: proc() -> bool {
     }
 
     PHYSICS_DT :: AI_REPLAY_DT / 32
+
+    af.set_draw_color({0, 0, 1, 1})
+    draw_graph(accel)
+    af.set_draw_color({1, 0, 0, 1})
+    draw_graph(velocity)
+    af.set_draw_color({1, 1, 1, 1})
+    draw_graph(velocity, 0)
+
+    draw_graph :: proc(graph: [dynamic]af.Vec2, ymul: f32 = 1) {
+        if len(graph) <= 2 {
+            return
+        }
+
+        corner_min, corner_max := graph[0], graph[0]
+        for i in 1 ..< len(graph) {
+            p := graph[i]
+            corner_min.x = min(corner_min.x, p.x)
+            corner_min.y = min(corner_min.y, p.y)
+            corner_max.x = max(corner_max.x, p.x)
+            corner_max.y = max(corner_max.y, p.y)
+        }
+
+
+        for i in 1 ..< len(graph) {
+            p0 := graph[i - 1]
+            p1 := graph[i]
+
+            x0 := inv_lerp(corner_min.x, corner_max.x, p0.x) * af.vw()
+            y0 := inv_lerp(corner_min.y, corner_max.y, p0.y * ymul) * af.vh()
+            x1 := inv_lerp(corner_min.x, corner_max.x, p1.x) * af.vw()
+            y1 := inv_lerp(corner_min.y, corner_max.y, p1.y * ymul) * af.vh()
+
+            af.draw_line(af.im, {x0, y0}, {x1, y1}, 2, .None)
+        }
+    }
 
     for i in 0 ..< len(point_simulations) {
         targets := &point_simulations[i].targets
@@ -191,6 +223,8 @@ motion_integration_test :: proc() -> bool {
             point_simulations[i].pos = {af.vw() / 2, af.vh() / 2}
             point_simulations[i].vel = {}
             point_simulations[i].accel = {}
+            point_simulations[i].current_time_taken = 0
+            point_simulations[i].total_time_taken = 0
             clear(targets)
         }
 
@@ -222,7 +256,7 @@ motion_integration_test :: proc() -> bool {
         if !freeze_time {
             time_taken := point_simulations[i].current_time_taken
             remaining_time := sec_between_targets - time_taken
-            accel := get_cursor_acceleration(
+            point_accel := get_cursor_acceleration(
                 point_simulations[i].pos,
                 point_simulations[i].vel,
                 target,
@@ -234,9 +268,14 @@ motion_integration_test :: proc() -> bool {
             integrate_motion(
                 &point_simulations[i].vel,
                 &point_simulations[i].pos,
-                accel,
+                point_accel,
                 PHYSICS_DT,
             )
+
+            if i == 0 {
+                append(&accel, af.Vec2{time_taken, point_accel.x})
+                append(&velocity, af.Vec2{time_taken, point_simulations[i].vel.x})
+            }
 
             if len(targets) > 0 {
                 point_simulations[i].total_time_taken += PHYSICS_DT
@@ -254,6 +293,8 @@ motion_integration_test :: proc() -> bool {
                point_simulations[i].current_time_taken >= sec_between_targets - HIT_WINDOW {
                 ordered_remove(targets, 0)
                 point_simulations[i].current_time_taken = 0
+                clear(&accel)
+                clear(&velocity)
             }
         }
     }
@@ -281,13 +322,23 @@ main :: proc() {
     defer cleanup()
 
     set_screen(.BeatmapPickeView)
-    af.run_main_loop(render)
 
-    // point_simulations[0].color = af.Color{0, 0, 1, 1}
-    // point_simulations[0].overshoot_multuplier = 1.2
-    // point_simulations[1].color = af.Color{1, 0, 0, 1}
-    // point_simulations[1].overshoot_multuplier = 1.2
-    // af.run_main_loop(motion_integration_test)
+    testing :: false
+    when !testing {
+        af.run_main_loop(render)
+    } else {
+        point_simulations[0].color = af.Color{0, 0, 1, 1}
+        point_simulations[0].accel_params.overshoot_multuplier = 1
+        point_simulations[0].accel_params.delta_accel_factor = 4
+        point_simulations[0].accel_params.max_accel = 9999999
+        point_simulations[0].accel_params.use_flow_aim_always = false
+        point_simulations[1].color = af.Color{1, 0, 0, 1}
+        point_simulations[1].accel_params.overshoot_multuplier = 1
+        point_simulations[1].accel_params.delta_accel_factor = 4
+        point_simulations[1].accel_params.max_accel = 9999999
+        point_simulations[1].accel_params.use_flow_aim_always = true
+        af.run_main_loop(motion_integration_test)
+    }
 }
 
 

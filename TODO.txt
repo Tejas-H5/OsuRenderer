@@ -6,14 +6,19 @@ Main objectives:
 TODO:
 
 - AI improvements
-    - [] AI should also start clicking the circles and sliders. It occasionally misses sometimes, so we should track this too
-        ...
+    - [x] AI should also start clicking the circles and sliders. It occasionally misses sometimes, so we should track this too
+        - This could be improved. 
+            - [] We can display which key is pressed. 
+            - [] We can also alternate if the last keypress happened very recently
+            - [] buttons to navigate to [<- prev miss] [next miss ->]
+
 
 - UI
     - [] It should look a bit better imo
         - [] Background image
             ...
     - [] AI should have sliders and stuff to control their values
+        - [] slider ui component
     - [] A G-meter
     - [] Export osu replay files
 

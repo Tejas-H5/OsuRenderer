@@ -10,7 +10,7 @@ recalculate_object_end_time :: proc(beatmap: ^Beatmap, hit_object_index: int) {
         // get the most recent sv. TODO: optimize
         sv: f64 = 1
         last_sv_index := -1
-        for i in 0 ..< len(beatmap.timing_points) - 1 {
+        for i in 0 ..< len(beatmap.timing_points) {
             tp := beatmap.timing_points[i]
             if tp.is_bpm_change == 1 {
                 continue
@@ -29,7 +29,7 @@ recalculate_object_end_time :: proc(beatmap: ^Beatmap, hit_object_index: int) {
         // get the most recent bpm. TODO: optimize
         bpm: f64 = 120
         last_bpm_index := -1
-        for i in 0 ..< len(beatmap.timing_points) - 1 {
+        for i in 0 ..< len(beatmap.timing_points) {
             tp := beatmap.timing_points[i]
             if tp.is_bpm_change != 1 {
                 continue

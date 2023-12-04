@@ -28,52 +28,64 @@ custom_ai_replay: AIReplay
 
 ais := []AIInfo {
      {
-        name = "Accelerator 1",
-        ai_fn = cursor_strategy_physical_accelerator,
-        replay_state = AIReplay {
-            accel_params = AccelParams {
-                lazy_factor_circle = 0.5,
-                lazy_factor_slider = 1.5,
-                max_accel_circle = 120000,
-                max_accel_slider = 30000,
-                overshoot_multuplier = 1,
-                use_max_accel = false,
-                axis_count = 6,
-                stop_distance = 3,
-            },
-        },
-        color = {0, 1, 0, 1},
+        name = "Automod",
+        ai_fn = cursor_motion_strategy_automod,
+        replay_state = AIReplay{},
+        color = {1, 1, 1, 1},
     },
      {
-        name = "Accelerator 2",
+        name = "Accelerator [stable]",
         ai_fn = cursor_strategy_physical_accelerator,
         replay_state = AIReplay {
             accel_params = AccelParams {
                 lazy_factor_circle = 0.5,
-                lazy_factor_slider = 1.5,
-                max_accel_circle = 120000,
-                max_accel_slider = 30000,
-                overshoot_multuplier = 1,
-                use_max_accel = false,
+                lazy_factor_slider = 1,
+                max_accel_circle = 999999,
+                max_accel_slider = 50000,
                 axis_count = 6,
                 stop_distance = 3,
+                overshoot_multuplier = 1,
+                delta_accel_factor = 4,
+                use_dynamic_axis = false,
             },
         },
         color = {0, 1, 1, 1},
     },
-    //  {
-    //     name = "Manual input",
-    //     ai_fn = cursor_strategy_manual_input,
-    //     replay_state = AIReplay {
-    //         accel_params =  {
-    //             max_accel = 120000,
-    //             overshoot_multuplier = 1,
-    //             use_max_accel = true,
-    //             axis_count = 3,
-    //         },
-    //     },
-    //     color = {1, 1, 1, 1},
-    // },
+     {
+        name = "Accelerator [experimental]",
+        ai_fn = cursor_strategy_physical_accelerator,
+        replay_state = AIReplay {
+            accel_params = AccelParams {
+                lazy_factor_circle = 0.5,
+                lazy_factor_slider = 1,
+                max_accel_circle = 120000,
+                max_accel_slider = 50000,
+                axis_count = 6,
+                stop_distance = 3,
+                overshoot_multuplier = 1,
+                delta_accel_factor = 4,
+                use_flow_aim_always = true,
+                use_dynamic_axis = false,
+            },
+        },
+        color = {0, 1, 0, 1},
+    },
+}
+
+current_beatmap_folder: string
+current_beatmap_filename: string
+beatmap_view_error: string
+beatmap_view_error_audio: audio.AudioError
+
+draw_control_points := false
+
+
+ObjectHitResult :: struct {
+    // TODO: figure out how to handle slider-ends, repeats, spinners
+    object:  int,
+    time:    f64,
+    delta:   f32,
+    is_miss: bool,
 }
 
 AIInfo :: struct {
@@ -84,13 +96,6 @@ AIInfo :: struct {
     name:         string,
 }
 
-
-current_beatmap_folder: string
-current_beatmap_filename: string
-beatmap_view_error: string
-beatmap_view_error_audio: audio.AudioError
-
-draw_control_points := false
 
 set_beatmap_view_error :: proc(msg: string, audio_err: audio.AudioError) {
     beatmap_view_error = msg
@@ -486,9 +491,9 @@ beatmap_view_cleanup :: proc() {
     }
 }
 
-reset_ai_replays :: proc() {
+reset_ai_replays :: proc(beatmap: ^osu.Beatmap) {
     for i in 0 ..< len(ais) {
-        reset_ai_replay(&ais[i].replay_state)
+        reset_ai_replay(&ais[i].replay_state, beatmap)
     }
 }
 
@@ -496,7 +501,6 @@ load_current_beatmap :: proc() {
     beatmap_time = 0
     wanted_music_time = 0
 
-    reset_ai_replays()
     beatmap_view_cleanup()
 
     // load beatmap file
@@ -507,6 +511,8 @@ load_current_beatmap :: proc() {
         set_beatmap_view_error("Failed to load beatmap", {})
         return
     }
+
+    reset_ai_replays(beatmap)
 
     // initialize the beatmap. 
     // TODO: may need to move this code to a better place if we ever want to add an editor, but that is unlikely at this stage
@@ -599,7 +605,7 @@ draw_beatmap_view :: proc() {
         }
 
         if af.key_just_pressed(.R) {
-            reset_ai_replays()
+            reset_ai_replays(beatmap)
         }
 
         ai_hide_inputs := []bool {
@@ -748,14 +754,9 @@ draw_beatmap_view :: proc() {
         text_size :: 32
         x, y, line_height: f32
         line_height = 32
+        y = af.vh() - line_height
         draw_text :: proc(text: string, x, y: f32) -> f32 {
-            res := af.draw_font_text(
-                af.im,
-                source_code_pro_regular,
-                text,
-                text_size,
-                {x, af.vh() - y - text_size},
-            )
+            res := af.draw_font_text(af.im, source_code_pro_regular, text, text_size, {x, y})
 
             padding :: 0
             return x + res.width + padding
@@ -765,7 +766,7 @@ draw_beatmap_view :: proc() {
         af.set_draw_color(color = af.Color{1, 0, 0, 1})
         x = draw_text(fmt.tprintf("%v <- %v -> %v", state.t0, beatmap_time, state.t1), x, y)
         x = 0
-        y += line_height
+        y -= line_height
         x = draw_text(
             fmt.tprintf(
                 " | objects %v to %v of %v",
@@ -778,14 +779,40 @@ draw_beatmap_view :: proc() {
         )
 
         x = 0
-        y += line_height
+        y -= line_height
         for ai in ais {
-            x, y = 0, y + line_height
+            x, y = 0, y - line_height
             af.set_draw_color(ai.color)
             draw_text(fmt.tprintf("--- %v ---", ai.name), x, y)
-            x, y = 0, y + line_height
-            draw_text(fmt.tprintf("%v points", len(ai.replay_state.replay)), x, y)
-            x, y = 0, y + line_height
+            x, y = 0, y - line_height
+
+            draw_text(fmt.tprintf("%v datapoints", len(ai.replay_state.replay)), x, y)
+            x, y = 0, y - line_height
+
+            hits := ai.replay_state.hits
+            misses := ai.replay_state.misses
+            draw_text(fmt.tprintf("%v hits", hits), x, y)
+            x, y = 0, y - line_height
+
+            if misses > 0 {
+                draw_text("misses:", x, y)
+                x, y = 0, y - line_height
+                for res in ai.replay_state.hit_results {
+                    if res.is_miss {
+                        x2 := draw_text(fmt.tprintf("t = %v", res.time), x, y)
+
+                        box := af.Rect{x, y, x2 - x, line_height}
+                        if af.mouse_is_over(box) {
+                            af.draw_rect_outline(af.im, box, 2)
+                            if af.mouse_button_is_down(.Left) {
+                                wanted_music_time = res.time
+                            }
+                        }
+
+                        x, y = 0, y - line_height
+                    }
+                }
+            }
         }
     }
 }

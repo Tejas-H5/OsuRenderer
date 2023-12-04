@@ -43,25 +43,11 @@ file_viewer_filter_files :: proc(file_picker: ^FilePickerState) {
     for i in 0 ..< len(file_picker.file_list) {
         file_name := file_picker.file_list[i]
 
-        check_match :: proc(str, query: string) -> bool {
-            if len(query) == 0 {
-                return true
-            }
-
-            query := query
-            for word in strings.split_iterator(&query, " ") {
-                if strings.contains(str, word) {
-                    return true
-                }
-            }
-
-            return false
-        }
 
         file_name_lower := strings.to_lower(file_name)
         defer delete(file_name_lower)
 
-        if check_match(file_name_lower, current_search_query_lower) {
+        if strings.contains(file_name_lower, current_search_query_lower) {
             append(&file_picker.file_list_filtered, i)
         }
     }
