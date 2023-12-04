@@ -353,7 +353,7 @@ adjust_value_with_mousewheel :: proc(
         af.draw_font_text_pivoted(
             af.im,
             source_code_pro_regular,
-            fmt.tprintf("adjusting %v... %v", name, val^),
+            fmt.tprintf("adjusting %v... %0.6v", name, val^),
             32,
             {af.vw() / 2, af.vh() / 2},
             {0.5, 0.5},

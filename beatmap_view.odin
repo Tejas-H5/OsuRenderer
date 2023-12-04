@@ -47,6 +47,7 @@ ais := []AIInfo {
                 overshoot_multuplier = 1,
                 delta_accel_factor = 4,
                 use_dynamic_axis = false,
+                responsiveness = 0.0012,
             },
         },
         color = {0, 1, 1, 1},
@@ -64,8 +65,9 @@ ais := []AIInfo {
                 stop_distance = 3,
                 overshoot_multuplier = 1,
                 delta_accel_factor = 4,
-                use_flow_aim_always = true,
-                use_dynamic_axis = false,
+                use_flow_aim = false,
+                use_dynamic_axis = true,
+                responsiveness = 0.0012,
             },
         },
         color = {0, 1, 0, 1},
@@ -596,10 +598,10 @@ draw_beatmap_view :: proc() {
 
     process_input :: proc() {
         if adjust_value_with_mousewheel(
-               "overshoot_amnt",
-               &ais[0].replay_state.accel_params.overshoot_multuplier,
+               "responsiveness",
+               &ais[1].replay_state.accel_params.responsiveness,
                .D,
-               0.01,
+               0.0001,
            ) {
             return
         }

@@ -176,6 +176,7 @@ AIReplay :: struct {
 
     // only used by functions that are physics-based.
     velocity:            osu.Vec2,
+    acceleration:        osu.Vec2,
     accel_params:        AccelParams,
 }
 
@@ -194,6 +195,7 @@ AccelParams :: struct {
     use_flow_aim:         bool,
     use_flow_aim_always:  bool,
     use_dynamic_axis:     bool,
+    responsiveness:       f32,
 
     // computed
     stop_distance_rad:    f32,
@@ -368,6 +370,7 @@ get_ai_replay_cursor_pos :: proc(
 reset_ai_replay :: proc(ai_replay: ^AIReplay, beatmap: ^osu.Beatmap) {
     clear(&ai_replay.replay)
     ai_replay.velocity = {}
+    ai_replay.acceleration = {}
     ai_replay.replay_seek_from = 0
     ai_replay.last_object_started = 0
 
@@ -662,7 +665,7 @@ cursor_strategy_physical_accelerator :: proc(
             target_pos = linalg.lerp(current_pos, target_pos, 0.2 * AI_REPLAY_DT)
         }
 
-        accel := get_cursor_acceleration(
+        wanted_accel := get_cursor_acceleration(
             current_pos,
             ai_replay.velocity,
             target_pos,
@@ -672,7 +675,14 @@ cursor_strategy_physical_accelerator :: proc(
             ai_replay.accel_params,
         )
 
-        integrate_motion(&ai_replay.velocity, &current_pos, accel, real_dt)
+        ai_replay.acceleration = move_towards(
+            wanted_accel,
+            ai_replay.acceleration,
+            linalg.length(wanted_accel - ai_replay.acceleration) *
+            (1.0 / ai_replay.accel_params.responsiveness) *
+            real_dt,
+        )
+        integrate_motion(&ai_replay.velocity, &current_pos, ai_replay.acceleration, real_dt)
     }
 
     return current_pos
@@ -701,6 +711,7 @@ get_cursor_acceleration :: proc(
         (math.PI / 2),
         1,
     )
+    // dynamic_axis := next_target - target
     if accel_params.use_dynamic_axis && linalg.length(dynamic_axis) > 0.0001 {
         // Use a dynamic acceleration coordinalte system axis that angle-snaps to segment_angle increments. 
         // This works a lot better than just using target - pos which is prone to orbitals, or using just the usual {0, 1} and {1, 0}.

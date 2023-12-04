@@ -30,6 +30,7 @@ inv_lerp_f64 :: proc(a, b, val: f64) -> f64 {
 
 move_towards :: proc {
     move_towards_f32,
+    move_towards_vec2,
 }
 
 move_towards_f32 :: proc(a, b, amount: f32) -> f32 {
@@ -39,6 +40,16 @@ move_towards_f32 :: proc(a, b, amount: f32) -> f32 {
     }
 
     return max(a + amount, b)
+}
+
+move_towards_vec2 :: proc(a, b: af.Vec2, amount: f32) -> af.Vec2 {
+    l := linalg.length(a - b)
+    new_length := l - amount
+    if new_length <= 0 {
+        return b
+    }
+
+    return a + linalg.normalize0(a - b) * new_length
 }
 
 // a trapezium curve. 0->1 from t0 to t0+fade_in, and 1->0 from t1-fade_out->t1
