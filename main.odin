@@ -158,7 +158,7 @@ motion_integration_test :: proc() -> bool {
         "delta accel fac",
         &point_simulations[0].accel_params.delta_accel_factor,
         .D,
-        0.1,
+        0.05,
     )
 
     if af.key_just_pressed(.Escape) {
@@ -226,6 +226,8 @@ motion_integration_test :: proc() -> bool {
             point_simulations[i].current_time_taken = 0
             point_simulations[i].total_time_taken = 0
             clear(targets)
+            clear(&accel)
+            clear(&velocity)
         }
 
 
@@ -293,8 +295,6 @@ motion_integration_test :: proc() -> bool {
                point_simulations[i].current_time_taken >= sec_between_targets - HIT_WINDOW {
                 ordered_remove(targets, 0)
                 point_simulations[i].current_time_taken = 0
-                clear(&accel)
-                clear(&velocity)
             }
         }
     }

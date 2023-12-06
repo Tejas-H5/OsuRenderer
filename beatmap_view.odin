@@ -45,7 +45,7 @@ ais := []AIInfo {
                 axis_count = 6,
                 stop_distance = 3,
                 overshoot_multuplier = 1,
-                delta_accel_factor = 4,
+                delta_accel_factor = 6,
                 use_dynamic_axis = false,
                 responsiveness = 0.0012,
             },
@@ -64,7 +64,7 @@ ais := []AIInfo {
                 axis_count = 6,
                 stop_distance = 3,
                 overshoot_multuplier = 1,
-                delta_accel_factor = 4,
+                delta_accel_factor = 6,
                 use_flow_aim = false,
                 use_dynamic_axis = true,
                 responsiveness = 0.0012,
@@ -182,11 +182,8 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
     circle_radius := osu_to_view_dir({circle_radius_osu, 0}).x
     thickness: f32 = circle_radius / 10
 
-    // stack_offset_amount is the stack offset from https://gist.github.com/peppy/1167470
-    // NOTE(peppy): ymmv
-    stack_offset_osu := (circle_radius_osu / 10) * af.Vec2{1, 1}
-    stack_offset_vec := osu.get_hit_object_stack_offset(hit_object, circle_radius_osu)
-    circle_pos := osu_to_view(hit_object.start_position + stack_offset_vec)
+    stack_offset_osu := osu.get_hit_object_stack_offset(hit_object, circle_radius_osu)
+    circle_pos := osu_to_view(hit_object.start_position_unstacked + stack_offset_osu)
 
     if hit_object.type == .Slider {
         // draw slider body
@@ -196,9 +193,8 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
             for i in 1 ..< len(hit_object.slider_nodes) {
                 node0 := hit_object.slider_nodes[i - 1]
                 node1 := hit_object.slider_nodes[i]
-                pos0 := osu_to_view(node0.pos + stack_offset_vec)
-                pos1 := osu_to_view(node1.pos + stack_offset_vec)
-
+                pos0 := osu_to_view(node0.pos + stack_offset_osu)
+                pos1 := osu_to_view(node1.pos + stack_offset_osu)
 
                 af.set_draw_color(color = af.Color{1, 1, 1, 1})
                 af.draw_line(af.im, pos0, pos1, thickness, .Circle)
@@ -261,7 +257,7 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
                 slider_path_buffer,
                 circle_radius * 2,
                 slider_end_length,
-                stack_offset_vec,
+                stack_offset_osu,
             )
             af.set_framebuffer(nil)
             af.set_layout_rect(af.window_rect, false)
@@ -282,7 +278,7 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
                 slider_path_buffer,
                 (circle_radius - thickness) * 2,
                 slider_end_length,
-                stack_offset_vec,
+                stack_offset_osu,
             )
             af.set_stencil_mode(.DrawOverZeroes)
             af.set_draw_color(color = af.Color{1, 1, 1, 1})
@@ -290,7 +286,7 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
                 slider_path_buffer,
                 circle_radius * 2,
                 slider_end_length,
-                stack_offset_vec,
+                stack_offset_osu,
             )
             af.set_stencil_mode(.Off)
 
@@ -301,12 +297,12 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
             af.set_layout_rect(original_layout_rect, false)
 
             // slider ball
-            slider_ball_osu_pos, repeat, has_slider_ball := osu.get_slider_ball_pos(
+            slider_ball_osu_pos, repeat, has_slider_ball := osu.get_slider_ball_pos_unstacked(
                 hit_object,
                 beatmap_time,
             )
             if has_slider_ball {
-                slider_ball_pos := osu_to_view(slider_ball_osu_pos + stack_offset_vec)
+                slider_ball_pos := osu_to_view(slider_ball_osu_pos + stack_offset_osu)
 
                 af.set_draw_params(color = {0, 1, 1, 0.5})
                 af.draw_circle(af.im, slider_ball_pos, circle_radius * 1.25, 64)
@@ -459,10 +455,19 @@ draw_hit_objects :: proc(beatmap: ^osu.Beatmap, first, last: int, preempt, fade_
                 min(min(opacity - min_opacity, opacity_next - min_opacity), min_opacity),
             )
 
-            p0 := beatmap.hit_objects[i].end_position
-            p1 := beatmap.hit_objects[i + 1].start_position
-            p0p1_dir := linalg.normalize(p1 - p0)
             circle_radius_osu := osu.get_circle_radius(beatmap)
+            stack_offset_0 := osu.get_hit_object_stack_offset(
+                beatmap.hit_objects[i],
+                circle_radius_osu,
+            )
+            stack_offset_1 := osu.get_hit_object_stack_offset(
+                beatmap.hit_objects[i + 1],
+                circle_radius_osu,
+            )
+            p0 := beatmap.hit_objects[i].end_position_unstacked + stack_offset_0
+            p1 := beatmap.hit_objects[i + 1].start_position_unstacked + stack_offset_1
+            p0p1_dir := linalg.normalize(p1 - p0)
+
             p0 += (p0p1_dir * circle_radius_osu)
             p1 -= (p0p1_dir * circle_radius_osu)
 

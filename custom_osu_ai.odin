@@ -59,13 +59,13 @@ get_position_on_object :: proc(
 
     switch hit_object.type {
     case .Circle:
-        return get_start_position_on_object(hit_object, circle_radius), false
+        return get_start_position_on_object(hit_object, circle_radius), true
     case .Spinner:
         angle := get_spinner_angle(hit_object, beatmap_time)
         return get_spinner_cursor_pos(angle), true
     case .Slider:
         stack_offset := osu.get_hit_object_stack_offset(hit_object, circle_radius)
-        pos, _, _ := osu.get_slider_ball_pos(hit_object, beatmap_time)
+        pos, _, _ := osu.get_slider_ball_pos_unstacked(hit_object, beatmap_time)
         return pos + stack_offset, true
     }
 
@@ -77,7 +77,7 @@ get_start_position_on_object :: proc(hit_object: osu.HitObject, circle_radius: f
 
     switch hit_object.type {
     case .Circle, .Slider:
-        return hit_object.start_position + stack_offset
+        return hit_object.start_position_unstacked + stack_offset
     case .Spinner:
         angle := get_spinner_angle(hit_object, hit_object.start_time)
         return get_spinner_cursor_pos(angle)
@@ -92,12 +92,12 @@ get_end_position_on_object :: proc(hit_object: osu.HitObject, circle_radius: f32
 
     switch hit_object.type {
     case .Circle:
-        return hit_object.end_position + stack_offset
+        return hit_object.end_position_unstacked + stack_offset
     case .Slider:
         if hit_object.slider_repeats % 2 == 1 {
-            return hit_object.end_position + stack_offset
+            return hit_object.end_position_unstacked + stack_offset
         } else {
-            return hit_object.start_position + stack_offset
+            return hit_object.start_position_unstacked + stack_offset
         }
     case .Spinner:
         angle := get_spinner_angle(hit_object, hit_object.end_time)
@@ -132,7 +132,8 @@ get_expected_cursor_pos :: proc(
     }
 
     curr := hit_objects[i]
-    curr_pos := curr.start_position + osu.get_hit_object_stack_offset(curr, circle_radius)
+    curr_pos :=
+        curr.start_position_unstacked + osu.get_hit_object_stack_offset(curr, circle_radius)
 
     if curr.start_time <= t && t <= curr.end_time {
         pos, ok := get_position_on_object(curr, t, circle_radius)
@@ -280,7 +281,7 @@ get_ai_replay_cursor_pos :: proc(
             window: f64,
         ) -> bool {
             stack_offset := osu.get_hit_object_stack_offset(hit_object, circle_radius)
-            hit_obj_pos := hit_object.start_position + stack_offset
+            hit_obj_pos := hit_object.start_position_unstacked + stack_offset
             if linalg.length(cursor_pos - hit_obj_pos) < circle_radius {
                 if hit_object.start_time - window < t && t < hit_object.start_time + window {
                     return true
@@ -848,15 +849,13 @@ get_cursor_acceleration :: proc(
 
         average_velocity_to_cover_difference := difference / time_to_target
 
-        // I thought this was supposed to be decel_to_target_velocity + (4 * average_velocity_to_cover_difference / (time_to_target * time_to_target)),
-        // but this caused my cursor to go into infinity. some wierd oscillation or something idk.
-        // This (aka decel_to_target_velocity + (4 * average_velocity_to_cover_difference / (time_to_target))) 
-        // seems to work, but I don't actually know why
+        // The optimal acceleration curve is just one burst of constant acceleration, and then the opposite in the other direction.
+        // I couldn't figure out how to calculate that exactly, though. this somewhat works, but may not be optimal
         wanted_accel :=
             decel_to_target_velocity +
             (accel_params.delta_accel_factor *
                     average_velocity_to_cover_difference /
-                    (time_to_target * time_to_target))
+                    (time_to_target))
 
         return wanted_accel
     }

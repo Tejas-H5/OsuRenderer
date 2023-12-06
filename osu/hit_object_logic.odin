@@ -62,13 +62,14 @@ recalculate_object_end_position :: proc(beatmap: ^Beatmap, i: int, slider_lod: f
     hit_object := beatmap.hit_objects[i]
     switch hit_object.type {
     case .Spinner:
-        beatmap.hit_objects[i].start_position = {-100, -100}
-        beatmap.hit_objects[i].end_position = {-100, -100}
+        beatmap.hit_objects[i].start_position_unstacked = {-100, -100}
+        beatmap.hit_objects[i].end_position_unstacked = {-100, -100}
     case .Slider:
-        beatmap.hit_objects[i].end_position =
+        beatmap.hit_objects[i].end_position_unstacked =
             hit_object.slider_path[len(hit_object.slider_path) - 1]
     case .Circle:
-        beatmap.hit_objects[i].end_position = beatmap.hit_objects[i].start_position
+        beatmap.hit_objects[i].end_position_unstacked =
+            beatmap.hit_objects[i].start_position_unstacked
     }
 }
 

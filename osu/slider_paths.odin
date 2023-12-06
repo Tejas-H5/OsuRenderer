@@ -66,7 +66,7 @@ slider_path_iterator :: proc(
 }
 
 // assumes that slider_nodes were generated using slider_length, so it doesn't check that the slider_path is actually slider_length long
-get_slider_ball_pos :: proc(
+get_slider_ball_pos_unstacked :: proc(
     slider: HitObject,
     current_time: f64,
 ) -> (
@@ -82,7 +82,7 @@ get_slider_ball_pos :: proc(
     end_time := slider.end_time
 
     if current_time < start_time {
-        return slider.start_position, 1, false
+        return slider.start_position_unstacked, 1, false
     }
 
     if current_time >= end_time {
@@ -125,7 +125,7 @@ get_slider_ball_pos :: proc(
     }
 
     if !found {
-        slider_ball_pos = slider.end_position
+        slider_ball_pos = slider.end_position_unstacked
     }
 
     return slider_ball_pos, current_repeat, found

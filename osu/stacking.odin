@@ -67,13 +67,17 @@ recalculate_stack_counts :: proc(beatmap: ^Beatmap) {
                  */
                 if objects[n].type == .Slider &&
                    (linalg.length(
-                               objects[n].end_position - objects[last_this_stack].start_position,
+                               objects[n].end_position_unstacked -
+                               objects[last_this_stack].start_position_unstacked,
                            ) <
                            STACK_LENIENCE) {
                     offset := objects[last_this_stack].stack_count - objects[n].stack_count + 1
                     for j in n + 1 ..= i {
                         //For each object which was declared under this slider, we will offset it to appear *below* the slider end (rather than above).
-                        if linalg.length(objects[n].end_position - objects[j].start_position) <
+                        if linalg.length(
+                               objects[n].end_position_unstacked -
+                               objects[j].start_position_unstacked,
+                           ) <
                            STACK_LENIENCE {
                             objects[j].stack_count -= offset
                         }
@@ -85,7 +89,8 @@ recalculate_stack_counts :: proc(beatmap: ^Beatmap) {
                 }
 
                 if (linalg.length(
-                           objects[n].start_position - objects[last_this_stack].start_position,
+                           objects[n].start_position_unstacked -
+                           objects[last_this_stack].start_position_unstacked,
                        ) <
                        STACK_LENIENCE) {
                     //Keep processing as if there are no sliders.  If we come across a slider, this gets cancelled out.
@@ -116,7 +121,8 @@ recalculate_stack_counts :: proc(beatmap: ^Beatmap) {
                 }
 
                 if (linalg.length(
-                           objects[n].end_position - objects[last_this_stack].start_position,
+                           objects[n].end_position_unstacked -
+                           objects[last_this_stack].start_position_unstacked,
                        ) <
                        STACK_LENIENCE) {
                     objects[n].stack_count = objects[last_this_stack].stack_count + 1

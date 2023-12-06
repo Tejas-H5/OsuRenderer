@@ -152,24 +152,26 @@ HitObjectType :: enum {
 Vec2 :: linalg.Vector2f32
 
 HitObject :: struct {
-    type:               HitObjectType,
-    is_new_combo:       bool,
-    start_time:         f64,
-    end_time:           f64, // spinner. NOTE: for sliders, this is inferred by it's slider_length and the current slider velocity
-    start_position:     Vec2, // an osu! pixel is confined to a 512, 384 playfield - https://osu.ppy.sh/wiki/en/Client/Playfield
-    hit_sound:          int,
-    slider_nodes:       [dynamic]SliderNode,
-    slider_repeats:     int,
-    slider_length:      f32,
-    slider_edge_sounds: string,
-    slider_edge_sets:   string,
-    hit_sample:         string,
+    type:                     HitObjectType,
+    is_new_combo:             bool,
+    start_time:               f64,
+    end_time:                 f64, // spinner. NOTE: for sliders, this is inferred by it's slider_length and the current slider velocity
+    hit_sound:                int,
+
+    // NOTE: the first node must be updated to be the slider's start_position_unstacked
+    slider_nodes:             [dynamic]SliderNode,
+    slider_repeats:           int,
+    slider_length:            f32,
+    slider_edge_sounds:       string,
+    slider_edge_sets:         string,
+    hit_sample:               string,
 
     // these props need to be recalculated
-    stack_count:        int,
-    end_position:       Vec2,
-    combo_number:       int,
-    slider_path:        [dynamic]Vec2,
+    stack_count:              int,
+    start_position_unstacked: Vec2, // an osu! pixel is confined to a 512, 384 playfield - https://osu.ppy.sh/wiki/en/Client/Playfield
+    end_position_unstacked:   Vec2,
+    combo_number:             int,
+    slider_path:              [dynamic]Vec2,
 }
 
 SliderNodeType :: enum {
@@ -368,8 +370,8 @@ parse_hit_object :: proc(line: string) -> (HitObject, bool) {
 
     x, _ := strconv.parse_f32(x_str)
     y, _ := strconv.parse_f32(y_str)
-    obj.start_position = Vec2{x, y}
-    obj.end_position = obj.start_position
+    obj.start_position_unstacked = Vec2{x, y}
+    obj.end_position_unstacked = obj.start_position_unstacked
     obj.start_time, _ = strconv.parse_f64(time_str)
     obj.start_time /= 1000
     obj.end_time = obj.start_time
@@ -440,7 +442,7 @@ parse_hit_object :: proc(line: string) -> (HitObject, bool) {
 
         // making the first node the same as the object's position simplifies the curve drawing code at the expense of 
         // adding a bit of duplicated info to be aware of
-        append(&obj.slider_nodes, SliderNode{pos = obj.start_position, type = .Bezier})
+        append(&obj.slider_nodes, SliderNode{pos = obj.start_position_unstacked, type = .Bezier})
 
         switch curve_type {
         case "P":
