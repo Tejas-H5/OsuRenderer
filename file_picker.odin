@@ -151,7 +151,7 @@ draw_file_picker :: proc(file_viewer: ^FilePickerState) {
         af.set_draw_params(color = {1, 1, 1, 1})
         af.draw_font_text_pivoted(
             af.im,
-            source_code_pro_regular,
+            g_source_code_pro_regular,
             search_bar_str,
             text_size,
             {af.vw() / 2, af.vh() - 32},
@@ -191,7 +191,7 @@ draw_file_picker :: proc(file_viewer: ^FilePickerState) {
 
         text_pos := af.Vec2{10, y}
         af.set_draw_params(color = {1, 1, 1, 1})
-        res := af.draw_font_text(af.im, source_code_pro_regular, file_name, text_size, text_pos)
+        res := af.draw_font_text(af.im, g_source_code_pro_regular, file_name, text_size, text_pos)
 
         if i == file_viewer.current_file_selection {
             af.draw_rect_outline(

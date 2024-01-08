@@ -12,74 +12,78 @@ import "core:strings"
 import "osu"
 
 
-beatmap_time: f64 = 0
-wanted_music_time: f64 = 0
+g_beatmap_view := struct {
+    // ai cursors
+    ais:                        []AIInfo,
 
-beatmap_first_visible: int
+    // beatmap 
+    beatmap_time:               f64,
+    wanted_music_time:          f64,
+    beatmap_first_visible:      int,
+    music:                      ^audio.Music,
+    beatmap:                    ^osu.Beatmap,
 
-slider_framebuffer: ^af.Framebuffer
-slider_framebuffer_texture: ^af.Texture
+    // slider drawing
+    slider_framebuffer:         ^af.Framebuffer,
+    slider_framebuffer_texture: ^af.Texture,
+    draw_control_points:        bool,
 
-music: ^audio.Music
-beatmap: ^osu.Beatmap
+    // the selected beatmap
+    current_beatmap_folder:     string,
+    current_beatmap_filename:   string,
 
-automod_replay: AIReplay
-custom_ai_replay: AIReplay
-
-ais := []AIInfo {
-     {
-        name = "Automod",
-        ai_fn = cursor_motion_strategy_automod,
-        replay_state = AIReplay{},
-        color = {1, 1, 1, 1},
-    },
-     {
-        name = "Accelerator [stable]",
-        ai_fn = cursor_strategy_physical_accelerator,
-        replay_state = AIReplay {
-            accel_params = AccelParams {
-                lazy_factor_circle = 0.5,
-                lazy_factor_slider = 1,
-                max_accel_circle = 999999,
-                max_accel_slider = 50000,
-                axis_count = 6,
-                stop_distance = 3,
-                overshoot_multuplier = 1,
-                delta_accel_factor = 6,
-                use_dynamic_axis = false,
-                responsiveness = 0.0012,
-            },
+    // error
+    error:                      string,
+    error_audio:                audio.AudioError,
+} {
+    ais = []AIInfo {
+         {
+            name = "Automod",
+            ai_fn = cursor_motion_strategy_automod,
+            replay_state = AIReplay{},
+            color = {1, 1, 1, 1},
         },
-        color = {0, 1, 1, 1},
-    },
-     {
-        name = "Accelerator [experimental]",
-        ai_fn = cursor_strategy_physical_accelerator,
-        replay_state = AIReplay {
-            accel_params = AccelParams {
-                lazy_factor_circle = 0.5,
-                lazy_factor_slider = 1,
-                max_accel_circle = 120000,
-                max_accel_slider = 50000,
-                axis_count = 6,
-                stop_distance = 3,
-                overshoot_multuplier = 1,
-                delta_accel_factor = 6,
-                use_flow_aim = false,
-                use_dynamic_axis = true,
-                responsiveness = 0.0012,
+         {
+            name = "Accelerator [stable]",
+            ai_fn = cursor_strategy_physical_accelerator,
+            replay_state = AIReplay {
+                accel_params = AccelParams {
+                    lazy_factor_circle = 0.5,
+                    lazy_factor_slider = 1,
+                    max_accel_circle = 999999,
+                    max_accel_slider = 30000,
+                    axis_count = 6,
+                    stop_distance = 3,
+                    overshoot_multuplier = 1,
+                    delta_accel_factor = 6,
+                    use_dynamic_axis = false,
+                    responsiveness = 0.0012,
+                },
             },
+            color = {0, 1, 1, 1},
         },
-        color = {0, 1, 0, 1},
+         {
+            name = "Accelerator [experimental]",
+            ai_fn = cursor_strategy_physical_accelerator,
+            replay_state = AIReplay {
+                accel_params = AccelParams {
+                    lazy_factor_circle = 0.5,
+                    lazy_factor_slider = 1,
+                    max_accel_circle = 999999,
+                    max_accel_slider = 30000,
+                    axis_count = 6,
+                    stop_distance = 3,
+                    overshoot_multuplier = 1,
+                    delta_accel_factor = 6,
+                    use_dynamic_axis = false,
+                    responsiveness = 0.0012,
+                    use_flow_aim = true,
+                },
+            },
+            color = {0, 1, 0, 1},
+        },
     },
 }
-
-current_beatmap_folder: string
-current_beatmap_filename: string
-beatmap_view_error: string
-beatmap_view_error_audio: audio.AudioError
-
-draw_control_points := false
 
 
 ObjectHitResult :: struct {
@@ -100,8 +104,8 @@ AIInfo :: struct {
 
 
 set_beatmap_view_error :: proc(msg: string, audio_err: audio.AudioError) {
-    beatmap_view_error = msg
-    beatmap_view_error_audio = audio_err
+    g_beatmap_view.error = msg
+    g_beatmap_view.error_audio = audio_err
 }
 
 
@@ -127,6 +131,8 @@ osu_to_view_dir :: proc(dir: af.Vec2) -> af.Vec2 {
 }
 
 draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64) {
+    beatmap_time := g_beatmap_view.beatmap_time
+
     opacity := osu.calculate_opacity(
         beatmap,
         beatmap.hit_objects[index].start_time,
@@ -188,7 +194,7 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
     if hit_object.type == .Slider {
         // draw slider body
 
-        if draw_control_points {
+        if g_beatmap_view.draw_control_points {
             // control points. TODO: remove or something
             for i in 1 ..< len(hit_object.slider_nodes) {
                 node0 := hit_object.slider_nodes[i - 1]
@@ -244,13 +250,13 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
 
             // init the framebuffer
             af.resize_framebuffer(
-                slider_framebuffer,
+                g_beatmap_view.slider_framebuffer,
                 int(af.window_rect.width),
                 int(af.window_rect.height),
             )
 
             // draw slider inner path to the framebuffer, and draw it
-            af.set_framebuffer(slider_framebuffer)
+            af.set_framebuffer(g_beatmap_view.slider_framebuffer)
             af.clear_screen({0, 0, 0, 0})
             af.set_draw_params(color = af.Color{0.1, 0.1, 0.1, 1})
             stroke_slider_path(
@@ -263,13 +269,13 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
             af.set_layout_rect(af.window_rect, false)
             af.set_draw_params(
                 color = {1, 1, 1, 0.7 * opacity},
-                texture = slider_framebuffer_texture,
+                texture = g_beatmap_view.slider_framebuffer_texture,
             )
             af.draw_rect(af.im, af.window_rect)
             af.set_layout_rect(original_layout_rect, false)
 
             // draw slider outline to the framebuffer, and draw it
-            af.set_framebuffer(slider_framebuffer)
+            af.set_framebuffer(g_beatmap_view.slider_framebuffer)
             af.clear_screen({0, 0, 0, 0})
             af.set_stencil_mode(.WriteOnes)
             af.clear_stencil()
@@ -292,7 +298,10 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
 
             af.set_framebuffer(nil)
             af.set_layout_rect(af.window_rect, false)
-            af.set_draw_params(color = {1, 1, 1, opacity}, texture = slider_framebuffer_texture)
+            af.set_draw_params(
+                color = {1, 1, 1, opacity},
+                texture = g_beatmap_view.slider_framebuffer_texture,
+            )
             af.draw_rect(af.im, af.window_rect)
             af.set_layout_rect(original_layout_rect, false)
 
@@ -381,7 +390,7 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
         af.set_draw_color(color = {1, 1, 1, opacity})
         res := af.draw_font_text_pivoted(
             af.im,
-            source_code_pro_regular,
+            g_source_code_pro_regular,
             fmt.tprintf("%d", hit_object.combo_number),
             nc_number_text_size,
             circle_pos,
@@ -417,7 +426,7 @@ draw_hit_objects :: proc(beatmap: ^osu.Beatmap, first, last: int, preempt, fade_
     if len(beatmap.hit_objects) == 0 {
         af.draw_font_text_pivoted(
             af.im,
-            source_code_pro_regular,
+            g_source_code_pro_regular,
             "no hit objects",
             32,
             {af.vw() / 2, af.vh() / 2},
@@ -431,7 +440,7 @@ draw_hit_objects :: proc(beatmap: ^osu.Beatmap, first, last: int, preempt, fade_
             beatmap,
             beatmap.hit_objects[i].start_time,
             beatmap.hit_objects[i].end_time,
-            beatmap_time,
+            g_beatmap_view.beatmap_time,
             preempt,
             fade_in,
             fade_in,
@@ -443,7 +452,7 @@ draw_hit_objects :: proc(beatmap: ^osu.Beatmap, first, last: int, preempt, fade_
                 beatmap,
                 beatmap.hit_objects[i + 1].start_time,
                 beatmap.hit_objects[i + 1].end_time,
-                beatmap_time,
+                g_beatmap_view.beatmap_time,
                 preempt,
                 fade_in,
                 fade_in,
@@ -481,69 +490,73 @@ draw_hit_objects :: proc(beatmap: ^osu.Beatmap, first, last: int, preempt, fade_
 
 
 view_beatmap :: proc(beatmap_folder: string, beatmap_filename: string) -> string {
-    current_beatmap_folder = beatmap_folder
-    current_beatmap_filename = beatmap_filename
+    g_beatmap_view.current_beatmap_folder = beatmap_folder
+    g_beatmap_view.current_beatmap_filename = beatmap_filename
     set_screen(.BeatmapView)
     return ""
 }
 
 beatmap_view_cleanup :: proc() {
     // clean up previous beatmap.
-    if beatmap != nil {
-        osu.free_beatmap(beatmap)
-        beatmap = nil
+    if g_beatmap_view.beatmap != nil {
+        osu.free_beatmap(g_beatmap_view.beatmap)
+        g_beatmap_view.beatmap = nil
 
-        audio.free_music(music)
-        music = nil
+        audio.free_music(g_beatmap_view.music)
+        g_beatmap_view.music = nil
     }
 }
 
 reset_ai_replays :: proc(beatmap: ^osu.Beatmap) {
-    for i in 0 ..< len(ais) {
-        reset_ai_replay(&ais[i].replay_state, beatmap)
+    for i in 0 ..< len(g_beatmap_view.ais) {
+        reset_ai_replay(&g_beatmap_view.ais[i].replay_state, beatmap)
     }
 }
 
 load_current_beatmap :: proc() {
-    beatmap_time = 0
-    wanted_music_time = 0
+    g_beatmap_view.beatmap_time = 0
+    g_beatmap_view.wanted_music_time = 0
 
     beatmap_view_cleanup()
 
     // load beatmap file
-    beatmap_fullpath := filepath.join([]string{current_beatmap_folder, current_beatmap_filename})
+    beatmap_fullpath := filepath.join(
+        []string{g_beatmap_view.current_beatmap_folder, g_beatmap_view.current_beatmap_filename},
+    )
     defer delete(beatmap_fullpath)
-    beatmap = osu.new_osu_beatmap(beatmap_fullpath)
-    if beatmap == nil {
+    g_beatmap_view.beatmap = osu.new_osu_beatmap(beatmap_fullpath)
+    if g_beatmap_view.beatmap == nil {
         set_beatmap_view_error("Failed to load beatmap", {})
         return
     }
 
-    reset_ai_replays(beatmap)
+    reset_ai_replays(g_beatmap_view.beatmap)
 
     // initialize the beatmap. 
     // TODO: may need to move this code to a better place if we ever want to add an editor, but that is unlikely at this stage
-    for i in 0 ..< len(beatmap.hit_objects) {
-        osu.recalculate_slider_path(beatmap, i, SLIDER_LOD)
-        osu.recalculate_object_values(beatmap, i, SLIDER_LOD)
+    for i in 0 ..< len(g_beatmap_view.beatmap.hit_objects) {
+        osu.recalculate_slider_path(g_beatmap_view.beatmap, i, SLIDER_LOD)
+        osu.recalculate_object_values(g_beatmap_view.beatmap, i, SLIDER_LOD)
     }
 
-    osu.recalculate_stack_counts(beatmap)
+    osu.recalculate_stack_counts(g_beatmap_view.beatmap)
 
     // load and set the music
-    music_fullpath := filepath.join([]string{current_beatmap_folder, beatmap.AudioFilename})
+    music_fullpath := filepath.join(
+        []string{g_beatmap_view.current_beatmap_folder, g_beatmap_view.beatmap.AudioFilename},
+    )
     music_fullpath_cstr := strings.clone_to_cstring(music_fullpath)
     delete(music_fullpath)
     defer delete(music_fullpath_cstr)
 
     err: audio.AudioError
-    music, err = audio.new_music(music_fullpath_cstr)
+    g_beatmap_view.music, err = audio.new_music(music_fullpath_cstr)
     if err.ErrorMessage != "" {
         set_beatmap_view_error("Failed to open music", err)
         return
     }
 
-    err = audio.set_music(music)
+    err = audio.set_music(g_beatmap_view.music)
     if err.ErrorMessage != "" {
         set_beatmap_view_error("Failed to set the music", err)
         return
@@ -552,8 +565,8 @@ load_current_beatmap :: proc() {
     set_beatmap_view_error("", {})
     af.debug_log(
         "Loaded beatmap with %v hit objects and %v timing points",
-        len(beatmap.hit_objects),
-        len(beatmap.timing_points),
+        len(g_beatmap_view.beatmap.hit_objects),
+        len(g_beatmap_view.beatmap.timing_points),
     )
 }
 
@@ -566,8 +579,8 @@ draw_beatmap_view :: proc() {
         return
     }
 
-    if screens_moved {
-        screens_moved = false
+    if g_app.screen_changed {
+        g_app.screen_changed = false
 
         load_current_beatmap()
     }
@@ -596,15 +609,15 @@ draw_beatmap_view :: proc() {
 
     af.set_layout_rect(layout_playfield)
     draw_osu_beatmap(&beatmap_info)
-    draw_ai_cursors(ais)
+    draw_ai_cursors(g_beatmap_view.ais)
 
     af.set_layout_rect(layout_ui)
-    draw_info_panel(beatmap_info, ais)
+    draw_info_panel(beatmap_info, g_beatmap_view.ais)
 
     process_input :: proc() {
         if adjust_value_with_mousewheel(
                "responsiveness",
-               &ais[1].replay_state.accel_params.responsiveness,
+               &g_beatmap_view.ais[1].replay_state.accel_params.responsiveness,
                .D,
                0.0001,
            ) {
@@ -612,7 +625,7 @@ draw_beatmap_view :: proc() {
         }
 
         if af.key_just_pressed(.R) {
-            reset_ai_replays(beatmap)
+            reset_ai_replays(g_beatmap_view.beatmap)
         }
 
         ai_hide_inputs := []bool {
@@ -622,11 +635,11 @@ draw_beatmap_view :: proc() {
         }
         for i in 0 ..< len(ai_hide_inputs) {
             if ai_hide_inputs[i] {
-                ais[i].is_hidden = !ais[i].is_hidden
+                g_beatmap_view.ais[i].is_hidden = !g_beatmap_view.ais[i].is_hidden
             }
         }
 
-        preempt := f64(osu.get_preempt(beatmap))
+        preempt := f64(osu.get_preempt(g_beatmap_view.beatmap))
 
         // playback input
         scroll_speed: f64 = 0.25 * (preempt)
@@ -637,31 +650,35 @@ draw_beatmap_view :: proc() {
             scroll_speed /= 5
         }
         if abs(af.mouse_wheel_notches) > 0.01 {
-            wanted_music_time -= f64(af.mouse_wheel_notches) * scroll_speed
+            g_beatmap_view.wanted_music_time -= f64(af.mouse_wheel_notches) * scroll_speed
         }
 
         if af.key_just_pressed(.C) {
-            draw_control_points = !draw_control_points
+            g_beatmap_view.draw_control_points = !g_beatmap_view.draw_control_points
         }
 
         if af.key_just_pressed(.Space) {
             audio.set_playing(!audio.is_playing())
 
             if audio.is_playing() {
-                wanted_music_time = beatmap_time
-                audio.set_playback_seconds(wanted_music_time)
+                g_beatmap_view.wanted_music_time = g_beatmap_view.beatmap_time
+                audio.set_playback_seconds(g_beatmap_view.wanted_music_time)
             }
         }
 
         if audio.is_playing() {
             t, res := audio.get_playback_seconds()
-            beatmap_time = t
-            wanted_music_time = t
+            g_beatmap_view.beatmap_time = t
+            g_beatmap_view.wanted_music_time = t
             if res.ErrorMessage != "" {
                 af.debug_warning("Error getting time - %v", res)
             }
         } else {
-            beatmap_time = math.lerp(beatmap_time, wanted_music_time, 20 * f64(af.delta_time))
+            g_beatmap_view.beatmap_time = math.lerp(
+                g_beatmap_view.beatmap_time,
+                g_beatmap_view.wanted_music_time,
+                20 * f64(af.delta_time),
+            )
         }
     }
 
@@ -674,7 +691,7 @@ draw_beatmap_view :: proc() {
 
 
     draw_osu_beatmap :: proc(info: ^CurrentBeatmapInfo) {
-        preempt := f64(osu.get_preempt(beatmap))
+        preempt := f64(osu.get_preempt(g_beatmap_view.beatmap))
 
         // make our playfield 4:3, put it on the left
         layout_rect := af.layout_rect
@@ -684,41 +701,51 @@ draw_beatmap_view :: proc() {
         af.set_draw_params(color = af.Color{1, 0, 0, 1}, texture = nil)
         af.draw_rect_outline(af.im, {0, 0, af.vw(), af.vh()}, 4)
 
-        fade_in := f64(osu.get_fade_in(beatmap))
+        fade_in := f64(osu.get_fade_in(g_beatmap_view.beatmap))
         fade_out := fade_in
 
-        info.t0 = beatmap_time - fade_out
-        info.t1 = beatmap_time + preempt
+        info.t0 = g_beatmap_view.beatmap_time - fade_out
+        info.t1 = g_beatmap_view.beatmap_time + preempt
 
-        beatmap_first_visible = osu.beatmap_get_first_visible(
-            beatmap,
+        g_beatmap_view.beatmap_first_visible = osu.beatmap_get_first_visible(
+            g_beatmap_view.beatmap,
             info.t0,
-            beatmap_first_visible,
+            g_beatmap_view.beatmap_first_visible,
         )
-        info.first_visible = beatmap_first_visible
-        info.last_visible = osu.beatmap_get_last_visible(beatmap, info.t1, beatmap_first_visible)
+        info.first_visible = g_beatmap_view.beatmap_first_visible
+        info.last_visible = osu.beatmap_get_last_visible(
+            g_beatmap_view.beatmap,
+            info.t1,
+            g_beatmap_view.beatmap_first_visible,
+        )
 
-        draw_hit_objects(beatmap, beatmap_first_visible, info.last_visible, preempt, fade_in)
+        draw_hit_objects(
+            g_beatmap_view.beatmap,
+            g_beatmap_view.beatmap_first_visible,
+            info.last_visible,
+            preempt,
+            fade_in,
+        )
     }
 
     draw_ai_cursors :: proc(ais: []AIInfo) {
-        circle_radius_osu := osu.get_circle_radius(beatmap)
+        circle_radius_osu := osu.get_circle_radius(g_beatmap_view.beatmap)
         circle_radius := osu_to_view_dir({circle_radius_osu, 0}).x
         last_generated_slider := -1
         cursor_size := osu_to_view_dir({10, 0}).x
 
         for i in 0 ..< CURSOR_ANALYSIS_AFTERIMAGES {
-            t := beatmap_time - f64(i) * CURSOR_ANALYSIS_DELTATIME
+            t := g_beatmap_view.beatmap_time - f64(i) * CURSOR_ANALYSIS_DELTATIME
             afterimage_strength: f32 =
                 f32(CURSOR_ANALYSIS_AFTERIMAGES - i) / f32(CURSOR_ANALYSIS_AFTERIMAGES)
 
             for i in 0 ..< len(ais) {
                 recorded_input := get_ai_replay_cursor_pos(
                     &ais[i].replay_state,
-                    beatmap,
+                    g_beatmap_view.beatmap,
                     t,
                     circle_radius_osu,
-                    beatmap_first_visible,
+                    g_beatmap_view.beatmap_first_visible,
                     ais[i].ai_fn,
                 )
                 pos := recorded_input.pos
@@ -763,7 +790,7 @@ draw_beatmap_view :: proc() {
         line_height = 32
         y = af.vh() - line_height
         draw_text :: proc(text: string, x, y: f32) -> f32 {
-            res := af.draw_font_text(af.im, source_code_pro_regular, text, text_size, {x, y})
+            res := af.draw_font_text(af.im, g_source_code_pro_regular, text, text_size, {x, y})
 
             padding :: 0
             return x + res.width + padding
@@ -771,7 +798,16 @@ draw_beatmap_view :: proc() {
 
 
         af.set_draw_color(color = af.Color{1, 0, 0, 1})
-        x = draw_text(fmt.tprintf("%v <- %v -> %v", state.t0, beatmap_time, state.t1), x, y)
+        x = draw_text(
+            fmt.tprintf(
+                "%0.3v <- %0.3v -> %0.3f",
+                state.t0,
+                g_beatmap_view.beatmap_time,
+                state.t1,
+            ),
+            x,
+            y,
+        )
         x = 0
         y -= line_height
         x = draw_text(
@@ -779,7 +815,7 @@ draw_beatmap_view :: proc() {
                 " | objects %v to %v of %v",
                 state.first_visible,
                 state.last_visible,
-                len(beatmap.hit_objects),
+                len(g_beatmap_view.beatmap.hit_objects),
             ),
             x,
             y,
@@ -812,7 +848,7 @@ draw_beatmap_view :: proc() {
                         if af.mouse_is_over(box) {
                             af.draw_rect_outline(af.im, box, 2)
                             if af.mouse_button_is_down(.Left) {
-                                wanted_music_time = res.time
+                                g_beatmap_view.wanted_music_time = res.time
                             }
                         }
 

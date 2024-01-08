@@ -5,9 +5,22 @@ Main objectives:
 
 TODO:
 
+- Overall product
+    - This program can be used to see how this natural AI will play the beatmap
+        - [] A seek bar at the bottom that displays a 'difficulty' graph
+            - really, it is just the magnitude of the required acceleration. 
+            - A bit like the 'most watched' thing on youtube
+        - [] Only have 1 AI. make the multiple AIs thing a testing option
+            - Remove multiple AIs
+
+
 - AI improvements
+    - [] The AI needs to stream smoothly
+    - The AI needs to be able to play 2B maps
+        - [] Our miss system needs to be re-evaluated for slider ends and slider repeats
+        - [] update the AI
     - [x] AI should also start clicking the circles and sliders. It occasionally misses sometimes, so we should track this too
-        - This could be improved. 
+        - This could be improved. [low priority]
             - [] We can display which key is pressed. 
             - [] We can also alternate if the last keypress happened very recently
             - [] buttons to navigate to [<- prev miss] [next miss ->]

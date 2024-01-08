@@ -8,32 +8,32 @@ import "core:path/filepath"
 import "core:strings"
 import "core:unicode/utf8"
 
-beatmap_folder_picker := FilePickerState {
+g_beatmap_folder_picker := FilePickerState {
     folders_only = true,
 }
-beatmap_file_picker := FilePickerState {
+g_beatmap_file_picker := FilePickerState {
     files_only     = true,
     file_extension = "osu",
 }
-beatmap_picker_error: string = ""
-beatmap_folder_chosen: bool
-beatmap_picker_current_folder: string = ""
+g_beatmap_picker_error: string = ""
+g_beatmap_folder_chosen: bool
+g_beatmap_picker_current_folder: string = ""
 
 refresh_beatmap_picker :: proc() {
-    if !refresh_files_list(&beatmap_folder_picker, OSU_DIR) {
-        beatmap_picker_error = "Failed to check the osu directory"
+    if !refresh_files_list(&g_beatmap_folder_picker, OSU_DIR) {
+        g_beatmap_picker_error = "Failed to check the osu directory"
     }
 }
 
 draw_beatmap_picker :: proc() {
-    if screens_moved {
-        screens_moved = false
+    if g_app.screen_changed {
+        g_app.screen_changed = false
         refresh_beatmap_picker()
     } else if af.key_is_down(.Ctrl) && af.key_just_pressed(.R) {
         refresh_beatmap_picker()
     }
 
-    if beatmap_picker_error != "" {
+    if g_beatmap_picker_error != "" {
         if af.key_just_pressed(.Escape) {
             set_screen(.Exit)
             return
@@ -41,13 +41,13 @@ draw_beatmap_picker :: proc() {
 
         af.set_draw_params(color = {1, 0, 0, 1})
 
-        error_msg := fmt.tprintf("%v - currently checking \"%v\"", beatmap_picker_error, OSU_DIR)
+        error_msg := fmt.tprintf("%v - currently checking \"%v\"", g_beatmap_picker_error, OSU_DIR)
         // TODO: better text rendering 
         y := af.vh() / 2
         for len(error_msg) > 0 {
             res := af.draw_font_text_pivoted(
                 af.im,
-                source_code_pro_regular,
+                g_source_code_pro_regular,
                 error_msg,
                 24,
                 {af.vw() / 2, y},
@@ -61,45 +61,45 @@ draw_beatmap_picker :: proc() {
         return
     }
 
-    if !beatmap_folder_chosen {
+    if !g_beatmap_folder_chosen {
         if af.key_just_pressed(.Escape) {
             set_screen(.Exit)
             return
         }
 
-        draw_file_picker(&beatmap_folder_picker)
+        draw_file_picker(&g_beatmap_folder_picker)
         if af.key_just_pressed(.Enter) {
-            folder, ok := get_file_picker_selection(&beatmap_folder_picker)
+            folder, ok := get_file_picker_selection(&g_beatmap_folder_picker)
             if ok {
-                if beatmap_picker_current_folder != "" {
-                    delete(beatmap_picker_current_folder)
+                if g_beatmap_picker_current_folder != "" {
+                    delete(g_beatmap_picker_current_folder)
                 }
-                beatmap_picker_current_folder = filepath.join([]string{OSU_DIR, folder})
-                if refresh_files_list(&beatmap_file_picker, beatmap_picker_current_folder) {
-                    beatmap_folder_chosen = true
+                g_beatmap_picker_current_folder = filepath.join([]string{OSU_DIR, folder})
+                if refresh_files_list(&g_beatmap_file_picker, g_beatmap_picker_current_folder) {
+                    g_beatmap_folder_chosen = true
                 } else {
                     af.debug_info(
                         "couldn't open folder with path %v :(",
-                        beatmap_picker_current_folder,
+                        g_beatmap_picker_current_folder,
                     )
 
                     // TODO: figure out how to allocate this memory
-                    beatmap_picker_error =
+                    g_beatmap_picker_error =
                     "unable to open that folder in particular. see console for more info"
                 }
             }
         }
     } else {
         if af.key_just_pressed(.Escape) {
-            beatmap_folder_chosen = false
+            g_beatmap_folder_chosen = false
             return
         }
 
-        draw_file_picker(&beatmap_file_picker)
+        draw_file_picker(&g_beatmap_file_picker)
         if af.key_just_pressed(.Enter) {
-            file, ok := get_file_picker_selection(&beatmap_file_picker)
+            file, ok := get_file_picker_selection(&g_beatmap_file_picker)
             if ok {
-                view_beatmap(beatmap_picker_current_folder, file)
+                view_beatmap(g_beatmap_picker_current_folder, file)
                 return
             }
         }

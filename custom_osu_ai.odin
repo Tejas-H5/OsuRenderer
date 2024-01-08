@@ -186,6 +186,7 @@ AccelParams :: struct {
     max_accel_circle:     f32,
     max_accel_slider:     f32,
     overshoot_multuplier: f32,
+
     // values less than 2 are somewhat unstable
     delta_accel_factor:   f32,
     axis_count:           int,
@@ -800,13 +801,20 @@ get_cursor_acceleration :: proc(
         s2 := linalg.dot(next_target, axis)
         v := linalg.dot(velocity, axis)
 
-        accel := get_cursor_acceleration_axis_1d(
+        // TODO: move up
+        angle := angle_between(pos, target, next_target)
+        use_flow_aim :=
+            accel_params.use_flow_aim_always ||
+            (accel_params.use_flow_aim && abs(angle) > math.PI / 2)
+
+        accel := get_cursor_acceleration_axis_1d_2(
             s,
             s1,
             s2,
             v,
             time_to_target,
             time_to_next_target,
+            use_flow_aim,
             accel_params,
         )
 
@@ -815,50 +823,132 @@ get_cursor_acceleration :: proc(
         return accel, max(t, 0)
     }
 
-    get_cursor_acceleration_axis_1d :: proc(
-        current, target, next_target, velocity: f32,
+
+    get_cursor_acceleration_axis_1d_2 :: proc(
+        current, target, next_target, v_curr: f32,
         time_to_target, time_to_next_target: f32,
+        use_flow_aim: bool,
         accel_params: AccelParams,
     ) -> f32 {
         curr_to_target := target - current
         target_to_next_target := next_target - target
 
-        if time_to_target < 0.0000001 {
-            WHO_CARES_THERES_NO_TIME_CONSTRAINT_ACCELERATION :: 10
-            return math.sign(curr_to_target) * WHO_CARES_THERES_NO_TIME_CONSTRAINT_ACCELERATION
+        curr_to_target_s := math.sign(curr_to_target)
+
+        v_target: f32 = 0
+        if use_flow_aim {
+            // This doesn't quite work. 
+            // This is because if max_decel_time starts varying between axes, the to axes won't be synchronized, and the angle ends up changing.
+            // This is really bad, because it affects the flow aim/snap aim calculation. 
+            // Also, the cursor won't be heading in a straight line from where it was to where it should go
+            // TODO: make this also return max_decel_time, and then in the calling function, override it with the min of both axes. 
+            // or figure something else out idk
+            v_target = target_to_next_target / time_to_next_target
         }
 
-        target_velocity: f32 = 0
-        if time_to_next_target > 0.0001 &&
-           (accel_params.use_flow_aim_always ||
-                   (accel_params.use_flow_aim &&
-                           curr_to_target * velocity > 0 &&
-                           target_to_next_target * velocity > 0)) {
-            // flow aim if they are in in a line.
-            // Since I've broken up acceleration into components along 2 axes, it doesn't work quite as expected
-            target_velocity = target_to_next_target / time_to_next_target
+        // For now, let's just think optimally accelerating and then stopping at the target. 
+        // We also want it to look like flow aim, so no overshooting and then accelerating back around.
+        // Most likely we may have to make this seperate from flow aim.
+        // TODO: make this method return the 
+
+        max_decel_time := math.INF_F32
+        if curr_to_target_s * v_curr > 0.0000001 {
+            // You can infer this by thinking of a line on a v_curr against time graph going through (v_curr, t_curr) -> (0, t_end).
+            // We can construct a triangle such that if we decelerate at this pace at a constant rate, we will have travelled the distance curr_to_target (area under the triangle).
+            // It would have a height of v_curr and a width of t, with the distance travelled being 0.5 * v_curr * t = curr_to_target.
+            // Rearrange for t, and we get:
+            // max_decel_time = 2 * curr_to_target / v_curr
+            // A similar way of thinking can be used to generalize this for any v_target. TODO: document this
+            max_decel_time = 2 * curr_to_target / (v_curr + v_target)
+            if max_decel_time < time_to_target {
+                // we can't decelerate any slower than this, otherwise we will overshoot the distance and have to wrap back around.
+                // Which is doable, but unnatural. (Well, it is a bit natural, but I will add that in later)
+                return (v_target - v_curr) / max_decel_time
+            }
         }
 
-        decel_to_target_velocity := (target_velocity - velocity) / time_to_target
-        distance_travelled := distance_constant_accel(
-            decel_to_target_velocity,
-            velocity,
-            time_to_target,
-        )
-        difference := curr_to_target - distance_travelled
+        // we want to accelerate some amount, and then decelerate some amount over a given amount of time, 
+        // in order to reach a standstill with the optimal amount of acceleration.
+        // How do we figure it out?
+        // When you are at a standstill, you will want to accelerate at a particular velocity for half the time, 
+        // and then decelerate at that exact velocity for the other half.
+        // On the velocity/time graph, this creates a perfect triangle. 
+        // However, when v_curr is zero, what do we do?
+        // This algorithm will halve v_curr, and see what acceleration we would need to reach curr_to_target within time_to_target.
+        // However, this assumes a cosntant acceleration instead of an acceleration and  a deceleration.
+        // We want  to accelerate for half the time, then decelereate for the other half, which requires precicely 2x accel and decel. 
+        // We will instead double the acceleration that this function returns, while passing in half the current velocity.
+        // The max_decel_time sohuld automatically take care of slowing down for us.
+        // This thing seems to be mostly working at the moment.
+        // If v_taget was zero, our equation would be:
+        // accel_required := 2 * accel_constant_accel(curr_to_target, 0.5 * v_curr, time_to_target)
+        // We can generalize to any v_target similar to above, by performing this scaling/unscaling relative to the target velocity.
+        v_target_to_v_curr := v_curr - v_target
+        accel_required :=
+            2 *
+            accel_constant_accel(
+                curr_to_target,
+                v_target + 0.5 * v_target_to_v_curr,
+                time_to_target,
+            )
 
-        average_velocity_to_cover_difference := difference / time_to_target
+        return accel_required
 
-        // The optimal acceleration curve is just one burst of constant acceleration, and then the opposite in the other direction.
-        // I couldn't figure out how to calculate that exactly, though. this somewhat works, but may not be optimal
-        wanted_accel :=
-            decel_to_target_velocity +
-            (accel_params.delta_accel_factor *
-                    average_velocity_to_cover_difference /
-                    (time_to_target))
 
-        return wanted_accel
     }
+
+
+    // This is the old algorithm for reference. It isnt paticularly good, so we can delete it later
+    // once we remeber what all the accel params do
+    // get_cursor_acceleration_axis_1d :: proc(
+    //     current, target, next_target, velocity: f32,
+    //     time_to_target, time_to_next_target: f32,
+    //     use_flow_aim: bool,
+    //     accel_params: AccelParams,
+    // ) -> f32 {
+    //     curr_to_target := target - current
+    //     target_to_next_target := next_target - target
+
+    //     time_to_target := time_to_target
+    //     if time_to_target < 0.000001 {
+    //         // just go to the target position in 0.1 seconds
+    //         default_time :: 0.1
+    //         accel := curr_to_target / default_time
+    //         dist := distance_constant_accel(accel, velocity, default_time)
+    //         if dist * math.sign(curr_to_target) > abs(curr_to_target) {
+    //             accel = -accel
+    //         }
+
+    //         return accel
+    //     }
+
+    //     target_velocity: f32 = 0
+    //     if time_to_next_target > 0.0001 && use_flow_aim {
+    //         // flow aim if they are in in a line.
+    //         // Since I've broken up acceleration into components along 2 axes, it doesn't work quite as expected
+    //         target_velocity = target_to_next_target / time_to_next_target
+    //     }
+
+    //     decel_to_target_velocity := (target_velocity - velocity) / time_to_target
+    //     distance_travelled := distance_constant_accel(
+    //         decel_to_target_velocity,
+    //         velocity,
+    //         time_to_target,
+    //     )
+    //     difference := curr_to_target - distance_travelled
+
+    //     average_velocity_to_cover_difference := difference / time_to_target
+
+    //     // The optimal acceleration curve is just one burst of constant acceleration, and then the opposite in the other direction.
+    //     // I couldn't figure out how to calculate that exactly, though. this somewhat works, but may not be optimal
+    //     wanted_accel :=
+    //         decel_to_target_velocity +
+    //         (accel_params.delta_accel_factor *
+    //                 average_velocity_to_cover_difference /
+    //                 (time_to_target))
+
+    //     return wanted_accel
+    // }
 }
 
 // given a distance, initial velocity, and time, returns how fast the acceleration is

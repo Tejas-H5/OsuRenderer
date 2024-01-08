@@ -9,45 +9,48 @@ import "core:math/rand"
 import "core:os"
 import "osu"
 
-source_code_pro_regular: ^af.DrawableFont
-curent_fps_count := 0
-fps := 0
-time: f32 = 0
+
+g_source_code_pro_regular: ^af.DrawableFont
+
+App :: struct {
+    curent_fps_count, fps: int,
+    time:                  f32,
+    screen:                AppScreen,
+    screen_changed:        bool,
+}
+g_app := App {
+    screen = .BeatmapPickeView,
+}
+
+AppScreen :: enum {
+    BeatmapPickeView,
+    BeatmapView,
+    Exit,
+}
+
+set_screen :: proc(screen: AppScreen) {
+    g_app.screen = screen
+    g_app.screen_changed = true
+}
+
 count_and_draw_fps :: proc() {
-    time += af.delta_time
-    curent_fps_count += 1
-    if time > 1 {
-        fps = curent_fps_count
-        curent_fps_count = 0
-        time = 0
+    g_app.time += af.delta_time
+    g_app.curent_fps_count += 1
+    if g_app.time > 1 {
+        g_app.fps = g_app.curent_fps_count
+        g_app.curent_fps_count = 0
+        g_app.time = 0
     }
 
     af.set_draw_params(color = {1, 0, 0, 1})
     af.draw_font_text_pivoted(
         af.im,
-        source_code_pro_regular,
-        fmt.tprintf("fps: %v", fps),
+        g_source_code_pro_regular,
+        fmt.tprintf("fps: %v", g_app.fps),
         32,
         {af.vw() - 10, 0},
         {1, 0},
     )
-}
-
-
-Testcase :: struct {
-    beatmap_path: string,
-    music_path:   cstring,
-}
-
-
-testcase_lil_darkie := Testcase {
-    beatmap_path = "./res/Beatmaps/TestBeatmap/LIL DARKIE - AMV (emilia) [NIHIL'S UNHINGED].osu",
-    music_path   = "./res/Beatmaps/TestBeatmap/audio.mp3",
-}
-
-testcase_centipede := Testcase {
-    beatmap_path = "./res/Beatmaps/Centipede/Knife Party - Centipede (Plumato444) [Enjoying long walk on the beach with Gumi.].osu",
-    music_path   = "./res/Beatmaps/Centipede/02-knife_party-centipede.mp3",
 }
 
 
@@ -60,11 +63,13 @@ init :: proc() {
     af.maximize_window()
     af.show_window()
 
-    source_code_pro_regular = af.new_font("./res/SourceCodePro-Regular.ttf", 64)
+    g_source_code_pro_regular = af.new_font("./res/SourceCodePro-Regular.ttf", 64)
 
     // initialize the beatmap view
-    slider_framebuffer_texture = af.new_texture_from_size(1, 1)
-    slider_framebuffer = af.new_framebuffer(slider_framebuffer_texture)
+    g_beatmap_view.slider_framebuffer_texture = af.new_texture_from_size(1, 1)
+    g_beatmap_view.slider_framebuffer = af.new_framebuffer(
+        g_beatmap_view.slider_framebuffer_texture,
+    )
 }
 
 
@@ -72,47 +77,34 @@ cleanup :: proc() {
     // uninit main program
     defer audio.un_initialize()
     defer af.un_initialize()
-    defer af.free_font(source_code_pro_regular)
+    defer af.free_font(g_source_code_pro_regular)
 
     // uninit beatmap view
-    defer af.free_texture(slider_framebuffer_texture)
-    defer af.free_framebuffer(slider_framebuffer)
+    defer af.free_texture(g_beatmap_view.slider_framebuffer_texture)
+    defer af.free_framebuffer(g_beatmap_view.slider_framebuffer)
     defer beatmap_view_cleanup()
 }
 
-
-AppScreen :: enum {
-    BeatmapPickeView,
-    BeatmapView,
-    Exit,
-}
-
-screens_moved := false
-current_screen := AppScreen.BeatmapPickeView
-set_screen :: proc(screen: AppScreen) {
-    current_screen = screen
-    screens_moved = true
-}
 
 render :: proc() -> bool {
     af.clear_screen({0, 0, 0, 0})
 
     base_layout := af.layout_rect
 
-    current_screen_original := current_screen
+    current_screen := g_app.screen
     switch current_screen {
     case .BeatmapPickeView:
         draw_beatmap_picker()
     case .BeatmapView:
         draw_beatmap_view()
     case .Exit:
-    // break (does nothing here cause its a switch lol)
+    // should be unreachable, as we should have exited at the 
+    // end of the frame where we moved to .Exit
     }
 
     af.set_layout_rect(base_layout)
     count_and_draw_fps()
-
-    if current_screen == .Exit {
+    if g_app.screen == .Exit {
         return false
     }
 
@@ -121,6 +113,7 @@ render :: proc() -> bool {
 
 
 PointSimulation :: struct {
+    graph_points_1:     [dynamic]af.Vec2,
     pos, vel, accel:    af.Vec2,
     targets:            [dynamic]af.Vec2,
     color:              af.Color,
@@ -130,33 +123,54 @@ PointSimulation :: struct {
 }
 
 
-target_radius: f32 = 100
-radius_thinggy: f32 = 10
-point_simulations: [2]PointSimulation
+g_motion_integration_test: struct {
+    point_simulations:   []PointSimulation,
+    sec_between_targets: f32,
+    // p_t: f32
+    first:               bool,
+} = {
+    first = true,
+    sec_between_targets = 0.1,
+    point_simulations = []PointSimulation {
+         {
+            color = af.Color{0, 0, 1, 1},
+            accel_params = AccelParams {
+                overshoot_multuplier = 1,
+                delta_accel_factor = 1,
+                max_accel = 9999999,
+                use_flow_aim_always = true,
+            },
+        },
+         {
+            color = af.Color{1, 0, 0, 1},
+            accel_params =  {
+                overshoot_multuplier = 1,
+                delta_accel_factor = 1,
+                max_accel = 9999999,
+                use_flow_aim = false,
+            },
+        },
+    },
+}
 
-sec_between_targets: f32 = 0.2
 
-accel := [dynamic]af.Vec2{}
-velocity := [dynamic]af.Vec2{}
-
-// p_t: f32
-first := true
-motion_integration_test :: proc() -> bool {
+run_motion_integration_test :: proc() -> bool {
     af.clear_screen({})
+    test := &g_motion_integration_test
 
     if af.key_just_pressed(.N) {
         for i in 0 ..< 10 {
             p := af.Vec2{rand.float32() * af.vw(), rand.float32() * af.vh()}
-            for i in 0 ..< len(point_simulations) {
-                append(&point_simulations[i].targets, p)
+            for i in 0 ..< len(test.point_simulations) {
+                append(&test.point_simulations[i].targets, p)
             }
         }
     }
 
-    adjust_value_with_mousewheel("sec_between_targets", &sec_between_targets, .S, 0.01)
+    adjust_value_with_mousewheel("sec_between_targets", &test.sec_between_targets, .S, 0.01)
     adjust_value_with_mousewheel(
         "delta accel fac",
-        &point_simulations[0].accel_params.delta_accel_factor,
+        &test.point_simulations[0].accel_params.delta_accel_factor,
         .D,
         0.05,
     )
@@ -166,13 +180,6 @@ motion_integration_test :: proc() -> bool {
     }
 
     PHYSICS_DT :: AI_REPLAY_DT / 32
-
-    af.set_draw_color({0, 0, 1, 1})
-    draw_graph(accel)
-    af.set_draw_color({1, 0, 0, 1})
-    draw_graph(velocity)
-    af.set_draw_color({1, 1, 1, 1})
-    draw_graph(velocity, 0)
 
     draw_graph :: proc(graph: [dynamic]af.Vec2, ymul: f32 = 1) {
         if len(graph) <= 2 {
@@ -202,6 +209,8 @@ motion_integration_test :: proc() -> bool {
         }
     }
 
+    point_simulations := test.point_simulations
+
     for i in 0 ..< len(point_simulations) {
         targets := &point_simulations[i].targets
         sim_col := point_simulations[i].color
@@ -215,6 +224,7 @@ motion_integration_test :: proc() -> bool {
             if len(targets) == 0 {
                 point_simulations[i].total_time_taken = 0
                 point_simulations[i].current_time_taken = 0
+                clear(&point_simulations[i].graph_points_1)
             }
             append(targets, target)
         }
@@ -226,8 +236,6 @@ motion_integration_test :: proc() -> bool {
             point_simulations[i].current_time_taken = 0
             point_simulations[i].total_time_taken = 0
             clear(targets)
-            clear(&accel)
-            clear(&velocity)
         }
 
 
@@ -235,6 +243,8 @@ motion_integration_test :: proc() -> bool {
             target := targets[i]
             col: af.Color = sim_col
             col[3] = f32(len(targets) - i) / f32(len(targets))
+
+            target_radius: f32 = 100
 
             af.set_draw_color(col)
             af.draw_circle_outline(af.im, target, target_radius, 64, 1)
@@ -252,19 +262,21 @@ motion_integration_test :: proc() -> bool {
             next_target = targets[1]
         }
 
+        radius_thinggy :: 50
         af.set_draw_color(sim_col)
         af.draw_circle(af.im, point_simulations[i].pos, radius_thinggy, 64)
+        draw_graph(point_simulations[i].graph_points_1)
 
         if !freeze_time {
             time_taken := point_simulations[i].current_time_taken
-            remaining_time := sec_between_targets - time_taken
+            remaining_time := test.sec_between_targets - time_taken
             point_accel := get_cursor_acceleration(
                 point_simulations[i].pos,
                 point_simulations[i].vel,
                 target,
                 next_target,
                 remaining_time,
-                sec_between_targets,
+                test.sec_between_targets,
                 point_simulations[i].accel_params,
             )
             integrate_motion(
@@ -274,10 +286,12 @@ motion_integration_test :: proc() -> bool {
                 PHYSICS_DT,
             )
 
-            if i == 0 {
-                append(&accel, af.Vec2{time_taken, point_accel.x})
-                append(&velocity, af.Vec2{time_taken, point_simulations[i].vel.x})
-            }
+            // graph v
+            append(
+                &point_simulations[i].graph_points_1,
+                af.Vec2{point_simulations[i].total_time_taken, point_simulations[i].vel.x},
+            )
+
 
             if len(targets) > 0 {
                 point_simulations[i].total_time_taken += PHYSICS_DT
@@ -292,7 +306,7 @@ motion_integration_test :: proc() -> bool {
 
             TOLERANCE :: 10
             if linalg.length(target - point_simulations[i].pos) < TOLERANCE &&
-               point_simulations[i].current_time_taken >= sec_between_targets - HIT_WINDOW {
+               point_simulations[i].current_time_taken >= test.sec_between_targets - HIT_WINDOW {
                 ordered_remove(targets, 0)
                 point_simulations[i].current_time_taken = 0
             }
@@ -305,7 +319,7 @@ motion_integration_test :: proc() -> bool {
         af.set_draw_color(point_simulations[i].color)
         af.draw_font_text(
             af.im,
-            source_code_pro_regular,
+            g_source_code_pro_regular,
             fmt.tprintf("point %v - %v", i, point_simulations[i].total_time_taken),
             s,
             {0, y},
@@ -323,21 +337,12 @@ main :: proc() {
 
     set_screen(.BeatmapPickeView)
 
-    testing :: false
+    testing :: true
     when !testing {
         af.run_main_loop(render)
     } else {
-        point_simulations[0].color = af.Color{0, 0, 1, 1}
-        point_simulations[0].accel_params.overshoot_multuplier = 1
-        point_simulations[0].accel_params.delta_accel_factor = 4
-        point_simulations[0].accel_params.max_accel = 9999999
-        point_simulations[0].accel_params.use_flow_aim_always = false
-        point_simulations[1].color = af.Color{1, 0, 0, 1}
-        point_simulations[1].accel_params.overshoot_multuplier = 1
-        point_simulations[1].accel_params.delta_accel_factor = 4
-        point_simulations[1].accel_params.max_accel = 9999999
-        point_simulations[1].accel_params.use_flow_aim_always = true
-        af.run_main_loop(motion_integration_test)
+        point_simulations := g_motion_integration_test.point_simulations
+        af.run_main_loop(run_motion_integration_test)
     }
 }
 
@@ -352,7 +357,7 @@ adjust_value_with_mousewheel :: proc(
         af.set_draw_color({1, 0, 0, 1})
         af.draw_font_text_pivoted(
             af.im,
-            source_code_pro_regular,
+            g_source_code_pro_regular,
             fmt.tprintf("adjusting %v... %0.6v", name, val^),
             32,
             {af.vw() / 2, af.vh() / 2},
