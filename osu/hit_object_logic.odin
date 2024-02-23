@@ -11,11 +11,8 @@ recalculate_object_end_time :: proc(beatmap: ^Beatmap, hit_object_index: int) {
         sv: f64 = 1
         last_sv_index := -1
         for i in 0 ..< len(beatmap.timing_points) {
+            // We don't skip over is_bpm_change because they reset the SV to 1 implicitly
             tp := beatmap.timing_points[i]
-            if tp.is_bpm_change == 1 {
-                continue
-            }
-
             if tp.time > hit_object.start_time {
                 break
             }
@@ -65,8 +62,13 @@ recalculate_object_end_position :: proc(beatmap: ^Beatmap, i: int, slider_lod: f
         beatmap.hit_objects[i].start_position_unstacked = {-100, -100}
         beatmap.hit_objects[i].end_position_unstacked = {-100, -100}
     case .Slider:
-        beatmap.hit_objects[i].end_position_unstacked =
-            hit_object.slider_path[len(hit_object.slider_path) - 1]
+        end_pos := beatmap.hit_objects[i].start_position_unstacked
+        if len(hit_object.slider_path) != 0 {
+            // some maps have zero length sliders, apparently
+            end_pos = hit_object.slider_path[len(hit_object.slider_path) - 1]
+        }
+
+        beatmap.hit_objects[i].end_position_unstacked = end_pos
     case .Circle:
         beatmap.hit_objects[i].end_position_unstacked =
             beatmap.hit_objects[i].start_position_unstacked

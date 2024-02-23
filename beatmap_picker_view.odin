@@ -39,7 +39,7 @@ draw_beatmap_picker :: proc() {
             return
         }
 
-        af.set_draw_params(color = {1, 0, 0, 1})
+        af.set_draw_params(color = g_current_theme.Error)
 
         error_msg := fmt.tprintf("%v - currently checking \"%v\"", g_beatmap_picker_error, OSU_DIR)
         // TODO: better text rendering 

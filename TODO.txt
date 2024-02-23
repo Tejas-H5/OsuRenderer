@@ -1,41 +1,34 @@
 Main objectives:
 
-- test my odin renderer, get better at programming, find edges of the Odin language
-- more natural looking osu AI movement
+I now plan on extending the scope of this software by quite a large margin, just to see how far I can actually take it.
+That is, both this software and my odin app framework.
+Hoping that Draoz gets rename and reference-finding implemented on the LSP at some point, but in the meantime, I will have to get creative.
+I no longer want this app to be compatible with osu!. Sure it will be able to load in osu! beatmaps, but I will be adding a lot more gamplay elements, possibly even a singleplayer mode with a storyline, and a lot of other things that won't 100% line up with the original osu! game.
+
+
+TODO: New things to do
+
+- Improve the underlying odin framework
+    - Use render+update in seperate thread feature
+    - Move away from immediate mode rendering, switch to images where possible. 
+    - Test out the idea of visual tests having a separate render/update method, and an update method that can assert things on it's own and flag failures without rendering
+- Start making a playable osu! clone
+    - Want to add sliders that you need to drag manually
+- Start making a bespoke osu! editor. Going to take a UX > UI
+    - Our more natural looking AI can be incorporated here
+        - Needs a better algo for streaming. This is hard, so we can tackle it later
+        - Should start doing keypresses
+        - Should be able to mroe easily navigate between misses
+        - Seek bar, it will have a line graph showing acceleration/difficulty spikes based on accel most likely
+    - Rotate/scale with same shortcuts
+    - SV pallete, ability to scale sliders proportionally to sv, ability to change beat length without changing slider visual
+    - Repeats?
+    - Hitsounding should be like a DAW
+    - Possibly a custom beatmap format. We want to support more features
+
+OLD PRIORITIES:
 
 TODO:
-
-- Overall product
-    - This program can be used to see how this natural AI will play the beatmap
-        - [] A seek bar at the bottom that displays a 'difficulty' graph
-            - really, it is just the magnitude of the required acceleration. 
-            - A bit like the 'most watched' thing on youtube
-        - [] Only have 1 AI. make the multiple AIs thing a testing option
-            - Remove multiple AIs
-
-
-- AI improvements
-    - [] The AI needs to stream smoothly
-    - The AI needs to be able to play 2B maps
-        - [] Our miss system needs to be re-evaluated for slider ends and slider repeats
-        - [] update the AI
-    - [x] AI should also start clicking the circles and sliders. It occasionally misses sometimes, so we should track this too
-        - This could be improved. [low priority]
-            - [] We can display which key is pressed. 
-            - [] We can also alternate if the last keypress happened very recently
-            - [] buttons to navigate to [<- prev miss] [next miss ->]
-
-
-- UI
-    - [] It should look a bit better imo
-        - [] Background image
-            ...
-    - [] AI should have sliders and stuff to control their values
-        - [] slider ui component
-    - [] A G-meter
-    - [] Export osu replay files
-
-- General issues
 
 - Combo-colours
 - Hit objects
@@ -68,7 +61,3 @@ TODO:
 - Hitsounds
     - [] basic support
     - [] load and use the beatmap hitsounds
-
-- AI cursor
-    - [x] osu! auto mod movement
-    - [x] more natural looking osu AI movement ... (ongoing)

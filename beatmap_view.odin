@@ -44,7 +44,7 @@ g_beatmap_view := struct {
             color = {1, 1, 1, 1},
         },
          {
-            name = "Accelerator [stable]",
+            name = "Accelerator",
             ai_fn = cursor_strategy_physical_accelerator,
             replay_state = AIReplay {
                 accel_params = AccelParams {
@@ -62,27 +62,26 @@ g_beatmap_view := struct {
             },
             color = {0, 1, 1, 1},
         },
-         {
-            name = "Accelerator [experimental]",
-            ai_fn = cursor_strategy_physical_accelerator,
-            replay_state = AIReplay {
-                accel_params = AccelParams {
-                    lazy_factor_circle = 0.5,
-                    lazy_factor_slider = 1,
-                    max_accel_circle = 999999,
-                    max_accel_slider = 30000,
-                    axis_count = 6,
-                    stop_distance = 3,
-                    overshoot_multuplier = 1,
-                    delta_accel_factor = 6,
-                    use_dynamic_axis = false,
-                    responsiveness = 0.0012,
-                    use_flow_aim = true,
-                },
-            },
-            color = {0, 1, 0, 1},
-        },
-    },
+    }, //  {
+    //     name = "Accelerator [experimental]",
+    //     ai_fn = cursor_strategy_physical_accelerator,
+    //     replay_state = AIReplay {
+    //         accel_params = AccelParams {
+    //             lazy_factor_circle = 0.5,
+    //             lazy_factor_slider = 1,
+    //             max_accel_circle = 999999,
+    //             max_accel_slider = 30000,
+    //             axis_count = 6,
+    //             stop_distance = 3,
+    //             overshoot_multuplier = 1,
+    //             delta_accel_factor = 6,
+    //             use_dynamic_axis = false,
+    //             responsiveness = 0.0012,
+    //             use_flow_aim = true,
+    //         },
+    //     },
+    //     color = {0, 1, 0, 1},
+    // },
 }
 
 
@@ -131,6 +130,7 @@ osu_to_view_dir :: proc(dir: af.Vec2) -> af.Vec2 {
 }
 
 draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64) {
+    theme := g_current_theme
     beatmap_time := g_beatmap_view.beatmap_time
 
     opacity := osu.calculate_opacity(
@@ -172,7 +172,7 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
         // TODO: remove this code, and make it driven by user spinning input
         spinner_angle := (477 / 60 * min(elapsed, total)) * math.TAU
 
-        af.set_draw_color({1, 1, 1, opacity})
+        af.set_draw_color(with_alpha(theme.Foreground, opacity))
         center := af.Vec2{af.vw() / 2, af.vh() / 2}
         af.draw_circle_outline(af.im, center, spinner_radius, 64, 20 * t)
 
@@ -202,7 +202,7 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
                 pos0 := osu_to_view(node0.pos + stack_offset_osu)
                 pos1 := osu_to_view(node1.pos + stack_offset_osu)
 
-                af.set_draw_color(color = af.Color{1, 1, 1, 1})
+                af.set_draw_color(color = theme.Foreground)
                 af.draw_line(af.im, pos0, pos1, thickness, .Circle)
 
                 if node1.type == .RedNode {
@@ -258,7 +258,7 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
             // draw slider inner path to the framebuffer, and draw it
             af.set_framebuffer(g_beatmap_view.slider_framebuffer)
             af.clear_screen({0, 0, 0, 0})
-            af.set_draw_params(color = af.Color{0.1, 0.1, 0.1, 1})
+            af.set_draw_params(color = theme.SliderPath)
             stroke_slider_path(
                 slider_path_buffer,
                 circle_radius * 2,
@@ -268,7 +268,7 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
             af.set_framebuffer(nil)
             af.set_layout_rect(af.window_rect, false)
             af.set_draw_params(
-                color = {1, 1, 1, 0.7 * opacity},
+                color = with_alpha(theme.Foreground, 0.7 * opacity),
                 texture = g_beatmap_view.slider_framebuffer_texture,
             )
             af.draw_rect(af.im, af.window_rect)
@@ -287,7 +287,7 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
                 stack_offset_osu,
             )
             af.set_stencil_mode(.DrawOverZeroes)
-            af.set_draw_color(color = af.Color{1, 1, 1, 1})
+            af.set_draw_color(color = theme.Foreground)
             stroke_slider_path(
                 slider_path_buffer,
                 circle_radius * 2,
@@ -299,7 +299,7 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
             af.set_framebuffer(nil)
             af.set_layout_rect(af.window_rect, false)
             af.set_draw_params(
-                color = {1, 1, 1, opacity},
+                color = with_alpha(theme.Foreground, opacity),
                 texture = g_beatmap_view.slider_framebuffer_texture,
             )
             af.draw_rect(af.im, af.window_rect)
@@ -313,7 +313,7 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
             if has_slider_ball {
                 slider_ball_pos := osu_to_view(slider_ball_osu_pos + stack_offset_osu)
 
-                af.set_draw_params(color = {0, 1, 1, 0.5})
+                af.set_draw_params(color = with_alpha(theme.Foreground, 0.5))
                 af.draw_circle(af.im, slider_ball_pos, circle_radius * 1.25, 64)
             }
 
@@ -351,7 +351,9 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
                 af.draw_line(af.im, arrow_end, arrow_lwing_end, line_thickness, .Circle)
             }
 
-            af.set_draw_params(color = {1, 1, 1, opacity})
+            // TODO: fix this opacity. right now, this arrow is visible before the slider
+            // has even finished snaking to the end
+            af.set_draw_params(color = with_alpha(theme.ReverseArrow, opacity))
             if draw_repeat_start {
                 draw_slider_repeat_arrow(
                     osu_to_view(slider_path_buffer[0]),
@@ -377,17 +379,18 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
 
         opacity := start_opacity
 
-        af.set_draw_params(color = af.Color{1, 1, 1, 1 * opacity}, texture = nil)
+        af.set_draw_params(color = with_alpha(theme.Foreground, opacity), texture = nil)
         af.draw_circle_outline(af.im, circle_pos, circle_radius - thickness, 64, thickness)
 
+        // this is a 1px 'shadow' outline around the hitcircle that isn't bound by the current theme
         af.set_draw_color(color = af.Color{0, 0, 0, 1 * opacity})
         af.draw_circle_outline(af.im, circle_pos, circle_radius, 64, 1)
 
-        af.set_draw_color(color = af.Color{0, 0, 0, 0.75 * opacity})
+        af.set_draw_color(color = with_alpha(theme.Background, opacity))
         af.draw_circle(af.im, circle_pos, circle_radius - thickness, 64)
 
         nc_number_text_size := circle_radius
-        af.set_draw_color(color = {1, 1, 1, opacity})
+        af.set_draw_color(color = with_alpha(theme.Foreground, opacity))
         res := af.draw_font_text_pivoted(
             af.im,
             g_source_code_pro_regular,
@@ -410,7 +413,7 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
                 f32(inv_lerp(ac_start, ac_end, beatmap_time)),
             )
 
-            af.set_draw_params(color = {1, 1, 1, opacity})
+            af.set_draw_params(color = with_alpha(theme.Foreground, opacity))
             af.draw_circle_outline(
                 af.im,
                 circle_pos,
@@ -423,6 +426,7 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
 }
 
 draw_hit_objects :: proc(beatmap: ^osu.Beatmap, first, last: int, preempt, fade_in: f64) {
+    theme := g_current_theme
     if len(beatmap.hit_objects) == 0 {
         af.draw_font_text_pivoted(
             af.im,
@@ -480,8 +484,9 @@ draw_hit_objects :: proc(beatmap: ^osu.Beatmap, first, last: int, preempt, fade_
             p0 += (p0p1_dir * circle_radius_osu)
             p1 -= (p0p1_dir * circle_radius_osu)
 
-            af.set_draw_params(color = {1, 1, 1, opacity_followpoint})
-            af.draw_line(af.im, osu_to_view(p0), osu_to_view(p1), 1, .None)
+            followpoint_thickness :: 3
+            af.set_draw_params(color = with_alpha(theme.Foreground, opacity_followpoint))
+            af.draw_line(af.im, osu_to_view(p0), osu_to_view(p1), followpoint_thickness, .None)
         }
 
         draw_hit_object(beatmap, i, preempt, fade_in)
@@ -574,44 +579,39 @@ load_current_beatmap :: proc() {
 draw_beatmap_view :: proc() {
     if af.key_just_pressed(.Escape) {
         beatmap_view_cleanup()
-
         set_screen(.BeatmapPickeView)
         return
     }
 
     if g_app.screen_changed {
         g_app.screen_changed = false
-
         load_current_beatmap()
     }
 
     process_input()
 
-
+    playfield_rect := af.layout_rect
     playfield_padding :: 80
-    layout_base := af.layout_rect
-    layout_playfield := layout_base
-    layout_playfield.width *= 0.7
     af.set_rect_size(
-        &layout_playfield,
-        layout_playfield.width - 2 * playfield_padding,
-        layout_playfield.height - 2 * playfield_padding,
+        &playfield_rect,
+        playfield_rect.width - 2 * playfield_padding,
+        playfield_rect.height - 2 * playfield_padding,
         0.5,
         0.5,
     )
 
     padding :: 20
-    layout_ui := layout_base
-    layout_ui.x0 += layout_playfield.width + layout_playfield.x0 + padding
-    layout_ui.width -= layout_ui.x0
+    info_rect := af.layout_rect
 
     beatmap_info: CurrentBeatmapInfo
 
-    af.set_layout_rect(layout_playfield)
+    af.set_layout_rect(playfield_rect)
+
     draw_osu_beatmap(&beatmap_info)
+
     draw_ai_cursors(g_beatmap_view.ais)
 
-    af.set_layout_rect(layout_ui)
+    af.set_layout_rect(info_rect)
     draw_info_panel(beatmap_info, g_beatmap_view.ais)
 
     process_input :: proc() {
@@ -691,6 +691,8 @@ draw_beatmap_view :: proc() {
 
 
     draw_osu_beatmap :: proc(info: ^CurrentBeatmapInfo) {
+        theme := g_current_theme
+
         preempt := f64(osu.get_preempt(g_beatmap_view.beatmap))
 
         // make our playfield 4:3, put it on the left
@@ -698,7 +700,7 @@ draw_beatmap_view :: proc() {
         set_rect_aspect_ratio(&layout_rect, 4.0 / 3.0, 0.5, 0.5)
         af.set_layout_rect(layout_rect)
 
-        af.set_draw_params(color = af.Color{1, 0, 0, 1}, texture = nil)
+        af.set_draw_params(with_alpha(theme.Foreground, 1))
         af.draw_rect_outline(af.im, {0, 0, af.vw(), af.vh()}, 4)
 
         fade_in := f64(osu.get_fade_in(g_beatmap_view.beatmap))
@@ -785,19 +787,20 @@ draw_beatmap_view :: proc() {
     }
 
     draw_info_panel :: proc(state: CurrentBeatmapInfo, ais: []AIInfo) {
+        theme := g_current_theme
         text_size :: 32
         x, y, line_height: f32
         line_height = 32
         y = af.vh() - line_height
         draw_text :: proc(text: string, x, y: f32) -> f32 {
             res := af.draw_font_text(af.im, g_source_code_pro_regular, text, text_size, {x, y})
-
+            
             padding :: 0
             return x + res.width + padding
         }
 
 
-        af.set_draw_color(color = af.Color{1, 0, 0, 1})
+        af.set_draw_color(color = theme.Foreground)
         x = draw_text(
             fmt.tprintf(
                 "%0.3v <- %0.3v -> %0.3f",

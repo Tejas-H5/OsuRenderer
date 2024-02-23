@@ -6,6 +6,7 @@ import "core:io"
 import "core:math"
 import "core:math/linalg"
 import "core:os"
+import "core:slice"
 import "core:strconv"
 import "core:strings"
 
@@ -311,6 +312,10 @@ parse_section :: proc(text: ^string, beatmap: ^Beatmap) -> bool {
             line, _ := parse_lines_iterator(text)
             beatmap.timing_points[i] = parse_timing_point(line)
         }
+
+        slice.sort_by(beatmap.timing_points, proc(i, j: TimingPoint) -> bool {
+            return i.time < j.time
+        })
     case "Colours":
         line_count := get_section_remaining_line_count(text^)
         beatmap.combo_colors = make([]ComboColor, line_count)

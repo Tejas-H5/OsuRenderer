@@ -25,7 +25,7 @@ new_shader_default :: proc() -> ^Shader {
 		"layout(location = 0) out vec4 frag_color;" +
 		"void main(){" +
 		"   vec4 texColor = texture2D(sampler, uv0.xy);" +
-		// "   frag_color = color * vec4(1, 0, 0, 1);" +
+		// "   frag_color = color * vec4(1, 0, 0, 1);" + // used very often to debug if textures are working
 		"   frag_color = color * texColor;" +
 		"}" 
 	//odinfmt:enable

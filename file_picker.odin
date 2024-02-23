@@ -148,7 +148,7 @@ draw_file_picker :: proc(file_viewer: ^FilePickerState) {
 
         current_search_query := get_file_viewer_search_query(file_viewer)
         search_bar_str := fmt.tprintf("Search: %s", current_search_query)
-        af.set_draw_params(color = {1, 1, 1, 1})
+        af.set_draw_params(color = g_current_theme.Foreground)
         af.draw_font_text_pivoted(
             af.im,
             g_source_code_pro_regular,
@@ -190,7 +190,7 @@ draw_file_picker :: proc(file_viewer: ^FilePickerState) {
         file_name := file_viewer.file_list[file_viewer.file_list_filtered[i]]
 
         text_pos := af.Vec2{10, y}
-        af.set_draw_params(color = {1, 1, 1, 1})
+        af.set_draw_params(color = g_current_theme.Foreground)
         res := af.draw_font_text(af.im, g_source_code_pro_regular, file_name, text_size, text_pos)
 
         if i == file_viewer.current_file_selection {

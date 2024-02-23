@@ -42,7 +42,7 @@ count_and_draw_fps :: proc() {
         g_app.time = 0
     }
 
-    af.set_draw_params(color = {1, 0, 0, 1})
+    af.set_draw_params(color = g_current_theme.Foreground)
     af.draw_font_text_pivoted(
         af.im,
         g_source_code_pro_regular,
@@ -87,7 +87,7 @@ cleanup :: proc() {
 
 
 render :: proc() -> bool {
-    af.clear_screen({0, 0, 0, 0})
+    af.clear_screen(g_current_theme.Background)
 
     base_layout := af.layout_rect
 
@@ -129,9 +129,9 @@ g_motion_integration_test: struct {
     // p_t: f32
     first:               bool,
 } = {
-    first = true,
+    first               = true,
     sec_between_targets = 0.1,
-    point_simulations = []PointSimulation {
+    point_simulations   = []PointSimulation {
          {
             color = af.Color{0, 0, 1, 1},
             accel_params = AccelParams {
@@ -337,12 +337,23 @@ main :: proc() {
 
     set_screen(.BeatmapPickeView)
 
-    testing :: true
-    when !testing {
-        af.run_main_loop(render)
-    } else {
-        point_simulations := g_motion_integration_test.point_simulations
-        af.run_main_loop(run_motion_integration_test)
+    testing :: false
+
+    for af.new_update_frame() {
+        af.begin_render_frame()
+
+        res: bool
+        when !testing {
+            res = render()
+        } else {
+            res = run_motion_integration_test() 
+        }
+
+        if !res {
+            break
+        }
+
+        af.end_render_frame()
     }
 }
 
@@ -354,7 +365,7 @@ adjust_value_with_mousewheel :: proc(
     increment: f32,
 ) -> bool {
     if af.key_is_down(key_code) {
-        af.set_draw_color({1, 0, 0, 1})
+        af.set_draw_color(g_current_theme.Foreground)
         af.draw_font_text_pivoted(
             af.im,
             g_source_code_pro_regular,
