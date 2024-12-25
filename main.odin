@@ -47,8 +47,8 @@ count_and_draw_fps :: proc() {
         af.im,
         g_source_code_pro_regular,
         fmt.tprintf("fps: %v", g_app.fps),
-        32,
-        {af.vw() - 10, 0},
+        16,
+        {af.vw() - 8, 8},
         {1, 0},
     )
 }
@@ -65,7 +65,7 @@ init :: proc() {
 
     g_source_code_pro_regular = af.new_font("./res/SourceCodePro-Regular.ttf", 64)
 
-    // initialize the beatmap view
+    // initialize the beatmap 
     g_beatmap_view.slider_framebuffer_texture = af.new_texture_from_size(1, 1)
     g_beatmap_view.slider_framebuffer = af.new_framebuffer(
         g_beatmap_view.slider_framebuffer_texture,
@@ -132,21 +132,24 @@ g_motion_integration_test: struct {
     first               = true,
     sec_between_targets = 0.1,
     point_simulations   = []PointSimulation {
-         {
-            color = af.Color{0, 0, 1, 1},
-            accel_params = AccelParams {
-                overshoot_multuplier = 1,
-                delta_accel_factor = 1,
-                max_accel = 9999999,
-                use_flow_aim_always = true,
-            },
-        },
-         {
+        {
             color = af.Color{1, 0, 0, 1},
-            accel_params =  {
+            accel_params = {
+                use_dynamic_axis = false,
                 overshoot_multuplier = 1,
                 delta_accel_factor = 1,
-                max_accel = 9999999,
+                max_accel = 99999999,
+                use_flow_aim = false,
+            },
+        }, 
+        {
+            color = af.Color{0, 1, 0, 1},
+            accel_params = {
+                use_alternate_accelerator = true,
+                use_dynamic_axis = false,
+                overshoot_multuplier = 1,
+                delta_accel_factor = 1,
+                max_accel = 99999999,
                 use_flow_aim = false,
             },
         },
@@ -211,104 +214,133 @@ run_motion_integration_test :: proc() -> bool {
 
     point_simulations := test.point_simulations
 
-    for i in 0 ..< len(point_simulations) {
-        targets := &point_simulations[i].targets
-        sim_col := point_simulations[i].color
-
+    for &sim in point_simulations {
         freeze_time := af.key_is_down(.Shift)
         if freeze_time &&
            (af.mouse_button_just_pressed(.Left) ||
                    af.key_just_pressed(.Z) ||
                    af.key_just_pressed(.X)) {
             target := af.get_mouse_pos()
-            if len(targets) == 0 {
-                point_simulations[i].total_time_taken = 0
-                point_simulations[i].current_time_taken = 0
-                clear(&point_simulations[i].graph_points_1)
+            if len(sim.targets) == 0 {
+                sim.total_time_taken = 0
+                sim.current_time_taken = 0
+                clear(&sim.graph_points_1)
             }
-            append(targets, target)
+            append(&sim.targets, target)
         }
 
         if af.key_just_pressed(.R) {
-            point_simulations[i].pos = {af.vw() / 2, af.vh() / 2}
-            point_simulations[i].vel = {}
-            point_simulations[i].accel = {}
-            point_simulations[i].current_time_taken = 0
-            point_simulations[i].total_time_taken = 0
-            clear(targets)
+            sim.pos = {af.vw() / 2, af.vh() / 2}
+            sim.vel = {}
+            sim.accel = {}
+            sim.current_time_taken = 0
+            sim.total_time_taken = 0
+            clear(&sim.targets)
         }
 
+        target_radius: f32 : 100
 
-        for i in 0 ..< len(targets) {
-            target := targets[i]
-            col: af.Color = sim_col
-            col[3] = f32(len(targets) - i) / f32(len(targets))
+        // draw some stuff
+        {
+            // targets
+            {
 
-            target_radius: f32 = 100
+                for i in 0 ..< len(sim.targets) {
+                    target := sim.targets[i]
+                    col: af.Color = sim.color
+                    col[3] = f32(len(sim.targets) - i) / f32(len(sim.targets))
 
-            af.set_draw_color(col)
-            af.draw_circle_outline(af.im, target, target_radius, 64, 1)
-            af.draw_line(af.im, target + {0, target_radius}, target - {0, target_radius}, 1, .None)
-            af.draw_line(af.im, target + {target_radius, 0}, target - {target_radius, 0}, 1, .None)
+
+                    af.set_draw_color(col)
+                    af.draw_circle_outline(af.im, target, target_radius, 64, 1)
+                    af.draw_line(
+                        af.im,
+                        target + {0, target_radius},
+                        target - {0, target_radius},
+                        1,
+                        .None,
+                    )
+                    af.draw_line(
+                        af.im,
+                        target + {target_radius, 0},
+                        target - {target_radius, 0},
+                        1,
+                        .None,
+                    )
+                }
+            }
+
+            // the cursor
+            radius_thinggy :: 50
+            af.set_draw_color(sim.color)
+            af.draw_circle(af.im, sim.pos, radius_thinggy, 64)
+
+            // velocity debug info
+            draw_graph(sim.graph_points_1)
+
+            display_constant :: 0.001
+
+            // acceleration debug info
+            af.set_draw_color({1, 1, 1, 1})
+            af.draw_line(af.im, sim.pos, sim.pos - display_constant * sim.accel, 10, .Circle)
+            af.set_draw_color({ 0, 1, 0, 1})
+            af.draw_line(af.im, sim.pos, sim.pos + sim.accel_params.predicted_distance, 10, .Circle)
+            af.draw_font_text(
+                af.im,
+                g_source_code_pro_regular,
+                fmt.tprintf("%0.4v", display_constant * sim.accel),
+                50,
+                sim.pos + {10, 10},
+            )
+
+            af.set_draw_color(sim.color)
         }
 
-
-        target := af.Vec2{af.vw() / 2, af.vh() / 2}
-        if len(targets) > 0 {
-            target = targets[0]
-        }
-        next_target := af.Vec2{af.vw() / 2, af.vh() / 2}
-        if len(targets) > 1 {
-            next_target = targets[1]
-        }
-
-        radius_thinggy :: 50
-        af.set_draw_color(sim_col)
-        af.draw_circle(af.im, point_simulations[i].pos, radius_thinggy, 64)
-        draw_graph(point_simulations[i].graph_points_1)
-
+        // run the simulation
         if !freeze_time {
-            time_taken := point_simulations[i].current_time_taken
+            time_taken := sim.current_time_taken
             remaining_time := test.sec_between_targets - time_taken
-            point_accel := get_cursor_acceleration(
-                point_simulations[i].pos,
-                point_simulations[i].vel,
+
+            target := af.Vec2{af.vw() / 2, af.vh() / 2}
+            if len(sim.targets) > 0 {
+                target = sim.targets[0]
+            }
+            next_target := af.Vec2{af.vw() / 2, af.vh() / 2}
+            if len(sim.targets) > 1 {
+                next_target = sim.targets[1]
+            }
+
+            sim.accel = get_cursor_acceleration(
+                sim.pos,
+                sim.vel,
+                sim.accel,
                 target,
                 next_target,
                 remaining_time,
                 test.sec_between_targets,
-                point_simulations[i].accel_params,
+                &sim.accel_params,
             )
-            integrate_motion(
-                &point_simulations[i].vel,
-                &point_simulations[i].pos,
-                point_accel,
-                PHYSICS_DT,
-            )
+            integrate_motion(&sim.vel, &sim.pos, sim.accel, PHYSICS_DT)
 
             // graph v
-            append(
-                &point_simulations[i].graph_points_1,
-                af.Vec2{point_simulations[i].total_time_taken, point_simulations[i].vel.x},
-            )
+            append(&sim.graph_points_1, af.Vec2{sim.total_time_taken, sim.vel.x})
 
-
-            if len(targets) > 0 {
-                point_simulations[i].total_time_taken += PHYSICS_DT
-                point_simulations[i].current_time_taken += PHYSICS_DT
+            if len(sim.targets) > 0 {
+                sim.total_time_taken += PHYSICS_DT
+                sim.current_time_taken += PHYSICS_DT
             }
         }
 
-        if len(targets) > 0 {
-            target = targets[0]
+        if len(sim.targets) > 0 {
+            target := sim.targets[0]
 
             HIT_WINDOW :: 0.005
+            TOLERANCE :: target_radius
 
-            TOLERANCE :: 10
-            if linalg.length(target - point_simulations[i].pos) < TOLERANCE &&
-               point_simulations[i].current_time_taken >= test.sec_between_targets - HIT_WINDOW {
-                ordered_remove(targets, 0)
-                point_simulations[i].current_time_taken = 0
+            if linalg.length(target - sim.pos) < TOLERANCE &&
+               sim.current_time_taken >= test.sec_between_targets - HIT_WINDOW {
+                ordered_remove(&sim.targets, 0)
+                sim.current_time_taken = 0
             }
         }
     }
@@ -337,7 +369,7 @@ main :: proc() {
 
     set_screen(.BeatmapPickeView)
 
-    testing :: false
+    testing :: true
 
     for af.new_update_frame() {
         af.begin_render_frame()
@@ -346,7 +378,7 @@ main :: proc() {
         when !testing {
             res = render()
         } else {
-            res = run_motion_integration_test() 
+            res = run_motion_integration_test()
         }
 
         if !res {

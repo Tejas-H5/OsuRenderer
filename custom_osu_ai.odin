@@ -1,6 +1,7 @@
 package main
 
 import "af"
+import "core:fmt"
 import "core:math"
 import "core:math/linalg"
 import "osu"
@@ -183,25 +184,30 @@ AIReplay :: struct {
 
 
 AccelParams :: struct {
-    max_accel_circle:     f32,
-    max_accel_slider:     f32,
-    overshoot_multuplier: f32,
+    max_accel_circle:          f32,
+    max_accel_slider:          f32,
+    overshoot_multuplier:      f32,
 
     // values less than 2 are somewhat unstable
-    delta_accel_factor:   f32,
-    axis_count:           int,
-    stop_distance:        f32,
-    lazy_factor_circle:   f32,
-    lazy_factor_slider:   f32,
-    use_time_sync:        bool,
-    use_flow_aim:         bool,
-    use_flow_aim_always:  bool,
-    use_dynamic_axis:     bool,
-    responsiveness:       f32,
+    delta_accel_factor:        f32,
+    axis_count:                int,
+    stop_distance:             f32,
+    lazy_factor_circle:        f32,
+    use_alternate_accelerator: bool,
+    lazy_factor_slider:        f32,
+    use_time_sync:             bool,
+    use_flow_aim:              bool,
+    use_flow_aim_always:       bool,
+    use_dynamic_axis:          bool,
+    responsiveness:            f32,
+    arrive_before_percent:     f32,
 
     // computed
-    stop_distance_rad:    f32,
-    max_accel:            f32,
+    stop_distance_rad:         f32,
+    max_accel:                 f32,
+
+    // debug vars, delete later
+    predicted_distance:        af.Vec2,
 }
 
 
@@ -533,8 +539,10 @@ cursor_strategy_physical_accelerator :: proc(
         slider_aim: bool
         if hit_objects[i].start_time <= t && t <= hit_objects[i].end_time {
             ok: bool
+
             target_pos, time_to_target, next_target_pos, time_to_next_target, ok =
                 get_target_positions(hit_objects[i], t, circle_radius)
+
             if ok {
                 target_handled = true
                 next_target_handled = true
@@ -626,6 +634,7 @@ cursor_strategy_physical_accelerator :: proc(
             // we are on a circle
             target_pos = get_start_position_on_object(hit_objects[i], circle_radius)
             time_to_target = f32(hit_objects[i].start_time - t)
+            time_to_target -= ai_replay.accel_params.arrive_before_percent * time_to_target
         }
 
         if !next_target_handled && i < len(hit_objects) - 1 {
@@ -670,11 +679,12 @@ cursor_strategy_physical_accelerator :: proc(
         wanted_accel := get_cursor_acceleration(
             current_pos,
             ai_replay.velocity,
+            ai_replay.acceleration,
             target_pos,
             next_target_pos,
             time_to_target,
             time_to_next_target,
-            ai_replay.accel_params,
+            &ai_replay.accel_params,
         )
 
         ai_replay.acceleration = move_towards(
@@ -698,26 +708,43 @@ integrate_motion :: proc(vel, pos: ^osu.Vec2, accel: osu.Vec2, dt: f32) {
 
 
 get_cursor_acceleration :: proc(
-    pos, velocity: osu.Vec2,
+    pos, velocity, accel: osu.Vec2,
     target, next_target: osu.Vec2,
     time_to_target, time_to_next_target: f32,
-    accel_params: AccelParams,
+    accel_params: ^AccelParams,
 ) -> osu.Vec2 {
+    if accel_params.use_alternate_accelerator {
+        return get_cursor_acceleration_orignal_alternalte(
+            pos,
+            velocity,
+            accel,
+            target,
+            next_target,
+            time_to_target,
+            time_to_next_target,
+            accel_params,
+        )
+    }
+
     axis_1 := osu.Vec2{1, 0}
     pos_to_target := target - pos
     target := target
     segments_angle: f32 = math.PI / f32(accel_params.axis_count)
-    dynamic_axis := angle_vec(
-        math.floor(math.atan2(pos_to_target.y, pos_to_target.x) / segments_angle) *
-            segments_angle +
-        (math.PI / 2),
-        1,
-    )
+
     // dynamic_axis := next_target - target
-    if accel_params.use_dynamic_axis && linalg.length(dynamic_axis) > 0.0001 {
+    if accel_params.use_dynamic_axis {
         // Use a dynamic acceleration coordinalte system axis that angle-snaps to segment_angle increments. 
         // This works a lot better than just using target - pos which is prone to orbitals, or using just the usual {0, 1} and {1, 0}.
-        axis_1 = linalg.normalize(dynamic_axis)
+        dynamic_axis := angle_vec(
+            math.floor(math.atan2(pos_to_target.y, pos_to_target.x) / segments_angle) *
+                segments_angle +
+            (math.PI / 2),
+            1,
+        )
+
+        if linalg.length(dynamic_axis) > 0.0001 {
+            axis_1 = linalg.normalize(dynamic_axis)
+        }
     }
 
     axis_2 := osu.Vec2{-axis_1.y, axis_1.x}
@@ -725,6 +752,7 @@ get_cursor_acceleration :: proc(
     a1, t1 := get_cursor_acceleration_axis(
         pos,
         velocity,
+        accel,
         target,
         next_target,
         time_to_target,
@@ -736,6 +764,7 @@ get_cursor_acceleration :: proc(
     a2, t2 := get_cursor_acceleration_axis(
         pos,
         velocity,
+        accel,
         target,
         next_target,
         time_to_target,
@@ -750,6 +779,7 @@ get_cursor_acceleration :: proc(
             a2, _ = get_cursor_acceleration_axis(
                 pos,
                 velocity,
+                accel,
                 target,
                 next_target,
                 t1,
@@ -761,6 +791,7 @@ get_cursor_acceleration :: proc(
             a1, _ = get_cursor_acceleration_axis(
                 pos,
                 velocity,
+                accel,
                 target,
                 next_target,
                 t2,
@@ -784,10 +815,11 @@ get_cursor_acceleration :: proc(
 
     get_cursor_acceleration_axis :: proc(
         pos, velocity: osu.Vec2,
+        accel: osu.Vec2,
         target, next_target: osu.Vec2,
         time_to_target, time_to_next_target: f32,
         axis: osu.Vec2,
-        accel_params: AccelParams,
+        accel_params: ^AccelParams,
     ) -> (
         f32,
         f32,
@@ -803,9 +835,10 @@ get_cursor_acceleration :: proc(
 
         // TODO: move up
         angle := angle_between(pos, target, next_target)
-        use_flow_aim :=
-            accel_params.use_flow_aim_always ||
-            (accel_params.use_flow_aim && abs(angle) > math.PI / 2)
+        // use_flow_aim :=
+        //     accel_params.use_flow_aim_always ||
+        //     (accel_params.use_flow_aim && abs(angle) > math.PI / 2)
+        use_flow_aim := false
 
         accel := get_cursor_acceleration_axis_1d_2(
             s,
@@ -818,7 +851,7 @@ get_cursor_acceleration :: proc(
             accel_params,
         )
 
-        t := time_constant_accel(accel, v, s1 - s)
+        t := accel_equation_t(accel, v, s1 - s)
 
         return accel, max(t, 0)
     }
@@ -828,12 +861,10 @@ get_cursor_acceleration :: proc(
         current, target, next_target, v_curr: f32,
         time_to_target, time_to_next_target: f32,
         use_flow_aim: bool,
-        accel_params: AccelParams,
+        accel_params: ^AccelParams,
     ) -> f32 {
         curr_to_target := target - current
         target_to_next_target := next_target - target
-
-        curr_to_target_s := math.sign(curr_to_target)
 
         v_target: f32 = 0
         if use_flow_aim {
@@ -852,6 +883,7 @@ get_cursor_acceleration :: proc(
         // TODO: make this method return the 
 
         max_decel_time := math.INF_F32
+        curr_to_target_s := math.sign(curr_to_target)
         if curr_to_target_s * v_curr > 0.0000001 {
             // You can infer this by thinking of a line on a v_curr against time graph going through (v_curr, t_curr) -> (0, t_end).
             // We can construct a triangle such that if we decelerate at this pace at a constant rate, we will have travelled the distance curr_to_target (area under the triangle).
@@ -859,11 +891,18 @@ get_cursor_acceleration :: proc(
             // Rearrange for t, and we get:
             // max_decel_time = 2 * curr_to_target / v_curr
             // A similar way of thinking can be used to generalize this for any v_target. TODO: document this
-            max_decel_time = 2 * curr_to_target / (v_curr + v_target)
+
+            /* max_decel_time = 2 * curr_to_target / (v_curr + v_target)
             if max_decel_time < time_to_target {
                 // we can't decelerate any slower than this, otherwise we will overshoot the distance and have to wrap back around.
                 // Which is doable, but unnatural. (Well, it is a bit natural, but I will add that in later)
                 return (v_target - v_curr) / max_decel_time
+            } */
+
+            // this is a simpler approach. maybe it also works?
+            distance_to_target_velocity := 0.5 * (math.abs(v_curr) + v_target) * time_to_target
+            if distance_to_target_velocity > math.abs(curr_to_target) {
+                return (v_target - v_curr) / time_to_target
             }
         }
 
@@ -886,86 +925,156 @@ get_cursor_acceleration :: proc(
         v_target_to_v_curr := v_curr - v_target
         accel_required :=
             2 *
-            accel_constant_accel(
-                curr_to_target,
-                v_target + 0.5 * v_target_to_v_curr,
-                time_to_target,
-            )
+            accel_equation_a(curr_to_target, v_target + 0.5 * v_target_to_v_curr, time_to_target)
 
         return accel_required
+    }
+}
 
+get_cursor_acceleration_orignal_alternalte :: proc(
+    pos, velocity: osu.Vec2,
+    accel: osu.Vec2,
+    target, next_target: osu.Vec2,
+    time_to_target, time_to_next_target: f32,
+    accel_params: ^AccelParams,
+) -> osu.Vec2 {
+    pos_to_target := target - pos
 
+    accel_params.predicted_distance = 0
+
+    // axis_1 := linalg.normalize0(pos_to_target)
+    axis_1 := osu.Vec2{1, 0}
+    axis_2 := osu.Vec2{-axis_1.y, axis_1.x}
+
+    // The code works by trying to modulate the velocity according to the graph below, where we 
+    // accelerate as fast as we can until half the distance, after which we slow down as fast as we can.
+    // We want the area under the curve to be equal to S, where S = 0.5 * 2 * v * t.
+    // We already know `t` (the time to the next object) and `s` (the distance to the next object).
+    // Since the velocity curve is symmetric, we know that the midpoint must be t/2.
+    //
+    //       |
+    //  2v --|       |
+    //       |     _/|\_
+    //   v --|   _/  |  \_
+    //       | _/    |    \_
+    //       |/      |      \
+    //   0 --|---------------|--
+    //       0      t/2      t
+    //
+    // With an acceleration of a, if we overshoot our target, we need to decelerate at a rate of a.
+    // We can accelerate a little faster actually, so that we'll always reach our target in time.
+    // In 2d, we'll need to apply this along two axes.
+    get_acceleration_along_axis :: proc(
+        axis: osu.Vec2,
+        pos, velocity: osu.Vec2,
+        accel: osu.Vec2,
+        target, next_target: osu.Vec2,
+        time_to_target, time_to_next_target: f32,
+        accel_params: ^AccelParams,
+    ) -> (
+        return_accel: osu.Vec2,
+    ) {
+        if (time_to_target < 0.001) {
+            return {0, 0}
+        }
+
+        pos_to_target := target - pos
+        s_to_target := linalg.dot(axis, pos_to_target)
+        v_to_target := linalg.dot(axis, velocity)
+
+        axis := axis
+        if s_to_target <= 0 {
+            axis = -axis
+            s_to_target = -s_to_target
+            v_to_target = -v_to_target
+        }
+
+        tolerance :: 0
+        // tolerance :: 0.1
+        // tolerance :: 50
+        s_no_accel_or_decel := v_to_target * time_to_target
+        accel_params.predicted_distance += axis * s_no_accel_or_decel
+
+        decel := -v_to_target / time_to_target
+
+        something :: 3
+
+        if s_no_accel_or_decel > something * s_to_target {
+            // eventually this number will be perfect.
+            return decel * axis
+        }
+
+        if s_no_accel_or_decel < s_to_target + tolerance {
+            // This is the acceleration required to reach our target and end up with a velocity of 
+            // 0.5at + v0, however, we want to end up with v=0. we need to accelerate in such a way that 
+            // it will be zero.
+            a := accel_equation_a(s_to_target, v_to_target, time_to_target)
+            return something * a * axis
+        }
+
+        return osu.Vec2{0, 0}
     }
 
-
-    // This is the old algorithm for reference. It isnt paticularly good, so we can delete it later
-    // once we remeber what all the accel params do
-    // get_cursor_acceleration_axis_1d :: proc(
-    //     current, target, next_target, velocity: f32,
-    //     time_to_target, time_to_next_target: f32,
-    //     use_flow_aim: bool,
-    //     accel_params: AccelParams,
-    // ) -> f32 {
-    //     curr_to_target := target - current
-    //     target_to_next_target := next_target - target
-
-    //     time_to_target := time_to_target
-    //     if time_to_target < 0.000001 {
-    //         // just go to the target position in 0.1 seconds
-    //         default_time :: 0.1
-    //         accel := curr_to_target / default_time
-    //         dist := distance_constant_accel(accel, velocity, default_time)
-    //         if dist * math.sign(curr_to_target) > abs(curr_to_target) {
-    //             accel = -accel
-    //         }
-
-    //         return accel
-    //     }
-
-    //     target_velocity: f32 = 0
-    //     if time_to_next_target > 0.0001 && use_flow_aim {
-    //         // flow aim if they are in in a line.
-    //         // Since I've broken up acceleration into components along 2 axes, it doesn't work quite as expected
-    //         target_velocity = target_to_next_target / time_to_next_target
-    //     }
-
-    //     decel_to_target_velocity := (target_velocity - velocity) / time_to_target
-    //     distance_travelled := distance_constant_accel(
-    //         decel_to_target_velocity,
-    //         velocity,
-    //         time_to_target,
-    //     )
-    //     difference := curr_to_target - distance_travelled
-
-    //     average_velocity_to_cover_difference := difference / time_to_target
-
-    //     // The optimal acceleration curve is just one burst of constant acceleration, and then the opposite in the other direction.
-    //     // I couldn't figure out how to calculate that exactly, though. this somewhat works, but may not be optimal
-    //     wanted_accel :=
-    //         decel_to_target_velocity +
-    //         (accel_params.delta_accel_factor *
-    //                 average_velocity_to_cover_difference /
-    //                 (time_to_target))
-
-    //     return wanted_accel
-    // }
+    return(
+        get_acceleration_along_axis(
+            axis_1,
+            pos,
+            velocity,
+            accel,
+            target,
+            next_target,
+            time_to_target,
+            time_to_next_target,
+            accel_params,
+        ) +
+        get_acceleration_along_axis(
+            axis_2,
+            pos,
+            velocity,
+            accel,
+            target,
+            next_target,
+            time_to_target,
+            time_to_next_target,
+            accel_params,
+        ) \
+    )
 }
 
 // given a distance, initial velocity, and time, returns how fast the acceleration is
-accel_constant_accel :: proc(s, v0, t: f32) -> f32 {
+// s = 0.5at^2 + v0t
+// => (s - v0t) / 0.5t^2 = a
+// => a = 2(s - v0t) / t^2
+accel_equation_a :: proc(s, v0, t: f32) -> f32 {
     return 2 * (s - v0 * t) / (t * t)
 }
 
+// given an acceleration, initial velocity, and time, returns the velocity after that much time
+// a = v0 + a * t
+accel_equation_v :: proc(a, v0, t: f32) -> f32 {
+    return v0 + a * t
+}
+
 // given an acceleration, initial velocity and time, returns the distance travelled
-distance_constant_accel :: proc(a, v0, t: f32) -> f32 {
+// s = 0.5at^2 + v0t
+accel_equation_s :: proc(a, v0, t: f32) -> f32 {
     return 0.5 * a * t * t + v0 * t
 }
 
-time_constant_accel :: proc(a, v, s: f32) -> f32 {
+// given an acceleration, initial velocity and distance, returns the time taken
+// s = 0.5at^2 + v0t
+// solve for t with quadratic, discard negative value
+accel_equation_t :: proc(a, v, s: f32) -> f32 {
     rt1, rt2 := quadratic_equation(0.5 * a, v, -s)
     return max(rt1, rt2)
 }
 
+// solves for x when ax^2 + bx + c = 0. 
+quadratic_equation :: proc(a, b, c: f32) -> (f32, f32) {
+    sqrt_part := math.sqrt(b * b - 4 * a * c)
+
+    return (-b + sqrt_part) / (2 * a), (-b - sqrt_part) / (2 * a)
+}
 
 cursor_strategy_manual_input :: proc(
     ai_replay: ^AIReplay,

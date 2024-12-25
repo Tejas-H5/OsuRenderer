@@ -147,7 +147,10 @@ draw_file_picker :: proc(file_viewer: ^FilePickerState) {
         }
 
         current_search_query := get_file_viewer_search_query(file_viewer)
-        search_bar_str := fmt.tprintf("Search: %s", current_search_query)
+        search_bar_str := "Start typing to search"
+        if len(current_search_query) > 0 {
+            search_bar_str = fmt.tprintf("Search: %s", current_search_query)
+        }
         af.set_draw_params(color = g_current_theme.Foreground)
         af.draw_font_text_pivoted(
             af.im,

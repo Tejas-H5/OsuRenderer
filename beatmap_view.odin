@@ -41,7 +41,7 @@ g_beatmap_view := struct {
             name = "Automod",
             ai_fn = cursor_motion_strategy_automod,
             replay_state = AIReplay{},
-            color = {1, 1, 1, 1},
+            color = {1, 0, 0, 1},
         },
          {
             name = "Accelerator",
@@ -51,7 +51,7 @@ g_beatmap_view := struct {
                     lazy_factor_circle = 0.5,
                     lazy_factor_slider = 1,
                     max_accel_circle = 999999,
-                    max_accel_slider = 30000,
+                    max_accel_slider = 50000,
                     axis_count = 6,
                     stop_distance = 3,
                     overshoot_multuplier = 1,
@@ -62,7 +62,29 @@ g_beatmap_view := struct {
             },
             color = {0, 1, 1, 1},
         },
-    }, //  {
+        {
+            name = "Alternate accelerator",
+            ai_fn = cursor_strategy_physical_accelerator,
+            replay_state = AIReplay {
+                accel_params = AccelParams {
+                    use_alternate_accelerator = true,
+                    arrive_before_percent = 0.2,
+
+                    lazy_factor_circle = 0.5,
+                    lazy_factor_slider = 1,
+                    max_accel_circle = 999999,
+                    max_accel_slider = 50000,
+                    axis_count = 6,
+                    stop_distance = 3,
+                    overshoot_multuplier = 1,
+                    delta_accel_factor = 6,
+                    use_dynamic_axis = false,
+                    responsiveness = 0.0012,
+                },
+            },
+            color = {0, 1, 0, 1},
+        },
+    //  {
     //     name = "Accelerator [experimental]",
     //     ai_fn = cursor_strategy_physical_accelerator,
     //     replay_state = AIReplay {
@@ -82,6 +104,7 @@ g_beatmap_view := struct {
     //     },
     //     color = {0, 1, 0, 1},
     // },
+    }, 
 }
 
 
@@ -606,9 +629,7 @@ draw_beatmap_view :: proc() {
     beatmap_info: CurrentBeatmapInfo
 
     af.set_layout_rect(playfield_rect)
-
     draw_osu_beatmap(&beatmap_info)
-
     draw_ai_cursors(g_beatmap_view.ais)
 
     af.set_layout_rect(info_rect)
@@ -794,7 +815,7 @@ draw_beatmap_view :: proc() {
         y = af.vh() - line_height
         draw_text :: proc(text: string, x, y: f32) -> f32 {
             res := af.draw_font_text(af.im, g_source_code_pro_regular, text, text_size, {x, y})
-            
+
             padding :: 0
             return x + res.width + padding
         }

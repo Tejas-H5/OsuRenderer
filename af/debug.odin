@@ -2,7 +2,7 @@ package af
 
 import "core:fmt"
 import "core:mem"
-import "core:runtime"
+import "base:runtime"
 
 LogSeverity :: enum {
     Debug,

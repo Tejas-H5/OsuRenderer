@@ -90,14 +90,6 @@ angle_between :: proc(a, b, c: af.Vec2) -> f32 {
     return res1
 }
 
-// solves for x when ax^2 + bx + c = 0. 
-quadratic_equation :: proc(a, b, c: f32) -> (f32, f32) {
-    sqrt_part := math.sqrt(b * b - 4 * a * c)
-
-    return (-b + sqrt_part) / (2 * a), (-b - sqrt_part) / (2 * a)
-}
-
-
 rotate_vec2 :: proc(v1: af.Vec2, angle: f32) -> af.Vec2 {
     l := linalg.length(v1)
     a := math.atan2(v1.y, v1.x)
