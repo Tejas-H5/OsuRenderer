@@ -173,6 +173,8 @@ HitObject :: struct {
     end_position_unstacked:   Vec2,
     combo_number:             int,
     slider_path:              [dynamic]Vec2,
+    // debug
+    bpm:                      f64,
 }
 
 SliderNodeType :: enum {

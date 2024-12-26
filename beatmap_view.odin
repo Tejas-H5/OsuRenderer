@@ -37,13 +37,13 @@ g_beatmap_view := struct {
     error_audio:                audio.AudioError,
 } {
     ais = []AIInfo {
-         {
+        {
             name = "Automod",
             ai_fn = cursor_motion_strategy_automod,
             replay_state = AIReplay{},
             color = {1, 0, 0, 1},
         },
-         {
+        {
             name = "Accelerator",
             ai_fn = cursor_strategy_physical_accelerator,
             replay_state = AIReplay {
@@ -68,9 +68,7 @@ g_beatmap_view := struct {
             replay_state = AIReplay {
                 accel_params = AccelParams {
                     use_alternate_accelerator = true,
-                    arrive_before_percent = 0.2,
-
-                    lazy_factor_circle = 0.5,
+                    lazy_factor_circle = 0.8,
                     lazy_factor_slider = 1,
                     max_accel_circle = 999999,
                     max_accel_slider = 50000,
@@ -84,27 +82,27 @@ g_beatmap_view := struct {
             },
             color = {0, 1, 0, 1},
         },
-    //  {
-    //     name = "Accelerator [experimental]",
-    //     ai_fn = cursor_strategy_physical_accelerator,
-    //     replay_state = AIReplay {
-    //         accel_params = AccelParams {
-    //             lazy_factor_circle = 0.5,
-    //             lazy_factor_slider = 1,
-    //             max_accel_circle = 999999,
-    //             max_accel_slider = 30000,
-    //             axis_count = 6,
-    //             stop_distance = 3,
-    //             overshoot_multuplier = 1,
-    //             delta_accel_factor = 6,
-    //             use_dynamic_axis = false,
-    //             responsiveness = 0.0012,
-    //             use_flow_aim = true,
-    //         },
-    //     },
-    //     color = {0, 1, 0, 1},
-    // },
-    }, 
+        //  {
+        //     name = "Accelerator [experimental]",
+        //     ai_fn = cursor_strategy_physical_accelerator,
+        //     replay_state = AIReplay {
+        //         accel_params = AccelParams {
+        //             lazy_factor_circle = 0.5,
+        //             lazy_factor_slider = 1,
+        //             max_accel_circle = 999999,
+        //             max_accel_slider = 30000,
+        //             axis_count = 6,
+        //             stop_distance = 3,
+        //             overshoot_multuplier = 1,
+        //             delta_accel_factor = 6,
+        //             use_dynamic_axis = false,
+        //             responsiveness = 0.0012,
+        //             use_flow_aim = true,
+        //         },
+        //     },
+        //     color = {0, 1, 0, 1},
+        // },
+    },
 }
 
 
@@ -232,7 +230,7 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
                     handle_size :: 20
                     af.draw_rect(
                         af.im,
-                         {
+                        {
                             pos1.x - handle_size,
                             pos1.y - handle_size,
                             handle_size * 2,
@@ -637,11 +635,11 @@ draw_beatmap_view :: proc() {
 
     process_input :: proc() {
         if adjust_value_with_mousewheel(
-               "responsiveness",
-               &g_beatmap_view.ais[1].replay_state.accel_params.responsiveness,
-               .D,
-               0.0001,
-           ) {
+            "responsiveness",
+            &g_beatmap_view.ais[1].replay_state.accel_params.responsiveness,
+            .D,
+            0.0001,
+        ) {
             return
         }
 
@@ -791,19 +789,19 @@ draw_beatmap_view :: proc() {
 
             ai_col := ai.color
             ai_col[3] = 0.5
-            af.set_draw_color(ai_col)
-            for i in max(
-                0,
-                replay.replay_seek_from - replay_hindsight,
-            ) ..< replay.replay_seek_from {
+            lo := max(0, replay.replay_seek_from - replay_hindsight)
+            hi := replay.replay_seek_from
+            for i in lo ..< hi {
+                af.set_draw_color(with_alpha(ai_col, inv_lerp(f32(lo), f32(hi), f32(i))))
+
                 p0 := osu_to_view(replay.replay[i].pos)
                 p1 := osu_to_view(replay.replay[i + 1].pos)
 
                 thickness := linalg.length(p0 - p1) * 0.5
-                if thickness < circle_radius {
-                    af.draw_line(af.im, p0, p1, thickness, .None)
-                }
+                af.draw_line(af.im, p0, p1, thickness, .None)
             }
+
+            af.set_draw_color(ai_col)
         }
     }
 

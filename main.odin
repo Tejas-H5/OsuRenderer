@@ -369,7 +369,7 @@ main :: proc() {
 
     set_screen(.BeatmapPickeView)
 
-    testing :: true
+    testing :: false
 
     for af.new_update_frame() {
         af.begin_render_frame()

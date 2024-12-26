@@ -537,7 +537,8 @@ cursor_strategy_physical_accelerator :: proc(
         time_to_target, time_to_next_target: f32
         target_handled, next_target_handled: bool
         slider_aim: bool
-        if hit_objects[i].start_time <= t && t <= hit_objects[i].end_time {
+        is_on_hit_object := hit_objects[i].start_time <= t && t <= hit_objects[i].end_time
+        if is_on_hit_object {
             ok: bool
 
             target_pos, time_to_target, next_target_pos, time_to_next_target, ok =
@@ -553,6 +554,7 @@ cursor_strategy_physical_accelerator :: proc(
                 i += 1
             }
 
+            // doesn't handle circle, since is_on_hit_object is never true for those
             get_target_positions :: proc(
                 hit_object: osu.HitObject,
                 t: f64,
@@ -591,7 +593,7 @@ cursor_strategy_physical_accelerator :: proc(
                     return {}, 0, {}, 0, false
                 }
 
-                SLIDER_LENIENCY_SECONDS :: 0.03
+                SLIDER_LENIENCY_SECONDS :: 0.025
 
                 pos_on_slider, has_pos_on_slider := get_position_on_object(
                     hit_object,
@@ -635,6 +637,12 @@ cursor_strategy_physical_accelerator :: proc(
             target_pos = get_start_position_on_object(hit_objects[i], circle_radius)
             time_to_target = f32(hit_objects[i].start_time - t)
             time_to_target -= ai_replay.accel_params.arrive_before_percent * time_to_target
+
+            if i < len(hit_objects) - 1 {
+                time_to_next_target = f32(
+                    hit_objects[i + 1].start_time - hit_objects[i].start_time,
+                )
+            }
         }
 
         if !next_target_handled && i < len(hit_objects) - 1 {
@@ -979,9 +987,11 @@ get_cursor_acceleration_orignal_alternalte :: proc(
         }
 
         pos_to_target := target - pos
+        target_to_next := next_target - target
         s_to_target := linalg.dot(axis, pos_to_target)
         v_to_target := linalg.dot(axis, velocity)
 
+        // keep our numbers positive and then flip the axis, so that we don't have to think too hard
         axis := axis
         if s_to_target <= 0 {
             axis = -axis
@@ -989,56 +999,50 @@ get_cursor_acceleration_orignal_alternalte :: proc(
             v_to_target = -v_to_target
         }
 
-        tolerance :: 0
-        // tolerance :: 0.1
-        // tolerance :: 50
-        s_no_accel_or_decel := v_to_target * time_to_target
-        accel_params.predicted_distance += axis * s_no_accel_or_decel
+        pos_to_target_norm := linalg.normalize0(pos_to_target)
+        wanted_v_vec :=
+            max(0, linalg.dot(pos_to_target_norm, target_to_next / time_to_next_target)) *
+            pos_to_target_norm
+        wanted_v := linalg.dot(axis, wanted_v_vec)
 
-        decel := -v_to_target / time_to_target
-
-        something :: 3
-
-        if s_no_accel_or_decel > something * s_to_target {
-            // eventually this number will be perfect.
+        if 0.5 * (v_to_target + wanted_v) * time_to_target > s_to_target {
+            decel := (wanted_v - v_to_target) / time_to_target
             return decel * axis
         }
 
-        if s_no_accel_or_decel < s_to_target + tolerance {
-            // This is the acceleration required to reach our target and end up with a velocity of 
-            // 0.5at + v0, however, we want to end up with v=0. we need to accelerate in such a way that 
-            // it will be zero.
-            a := accel_equation_a(s_to_target, v_to_target, time_to_target)
-            return something * a * axis
-        }
-
-        return osu.Vec2{0, 0}
+        // Something smart - we pass in half our current velocity to this function, and then 
+        // double the acceleration that we get back. 
+        // However, this assumes the target velocity and the starting velocity are both zero.
+        // The solution may be good enough for other velocities, but it isn't optimal.
+        the_lie :: 2
+        a := the_lie * accel_equation_a(s_to_target, v_to_target / the_lie, time_to_target)
+        return a * axis
     }
 
-    return(
-        get_acceleration_along_axis(
-            axis_1,
-            pos,
-            velocity,
-            accel,
-            target,
-            next_target,
-            time_to_target,
-            time_to_next_target,
-            accel_params,
-        ) +
-        get_acceleration_along_axis(
-            axis_2,
-            pos,
-            velocity,
-            accel,
-            target,
-            next_target,
-            time_to_target,
-            time_to_next_target,
-            accel_params,
-        ) \
+    a1 := get_acceleration_along_axis(
+        axis_1,
+        pos,
+        velocity,
+        accel,
+        target,
+        next_target,
+        time_to_target,
+        time_to_next_target,
+        accel_params,
     )
+    a2 := get_acceleration_along_axis(
+        axis_2,
+        pos,
+        velocity,
+        accel,
+        target,
+        next_target,
+        time_to_target,
+        time_to_next_target,
+        accel_params,
+    )
+
+    return linalg.clamp_length(a1 + a2, accel_params.max_accel)
 }
 
 // given a distance, initial velocity, and time, returns how fast the acceleration is

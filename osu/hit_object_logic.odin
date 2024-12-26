@@ -3,6 +3,8 @@ package osu
 import "../af"
 import "core:math"
 
+FLOATING_POINT_TOLERANCE :: 0.0000001
+
 recalculate_object_end_time :: proc(beatmap: ^Beatmap, hit_object_index: int) {
     hit_object := beatmap.hit_objects[hit_object_index]
 
@@ -13,7 +15,7 @@ recalculate_object_end_time :: proc(beatmap: ^Beatmap, hit_object_index: int) {
         for i in 0 ..< len(beatmap.timing_points) {
             // We don't skip over is_bpm_change because they reset the SV to 1 implicitly
             tp := beatmap.timing_points[i]
-            if tp.time > hit_object.start_time {
+            if tp.time > hit_object.start_time + FLOATING_POINT_TOLERANCE {
                 break
             }
 
@@ -32,7 +34,7 @@ recalculate_object_end_time :: proc(beatmap: ^Beatmap, hit_object_index: int) {
                 continue
             }
 
-            if tp.time > hit_object.start_time && last_bpm_index != -1 {
+            if tp.time > hit_object.start_time + FLOATING_POINT_TOLERANCE && last_bpm_index != -1 {
                 break
             }
 
@@ -50,6 +52,7 @@ recalculate_object_end_time :: proc(beatmap: ^Beatmap, hit_object_index: int) {
         duration := (f64(hit_object.slider_length) / sv_real) * beat_length_real
         repeats := hit_object.slider_repeats
 
+        beatmap.hit_objects[hit_object_index].bpm = bpm
         beatmap.hit_objects[hit_object_index].end_time =
             hit_object.start_time + duration * f64(repeats)
     }
