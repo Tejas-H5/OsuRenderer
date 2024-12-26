@@ -82,6 +82,29 @@ g_beatmap_view := struct {
             },
             color = {0, 1, 0, 1},
         },
+        {
+            // NOTE: it doesn't quite work - we need to work on navigating a simpler path from 
+            // the start to the end rather than actually traversing the slider.
+            // It could just be lerping between the start -> end straight line vs the actual slider path
+            name = "AA Slider noob",
+            ai_fn = cursor_strategy_physical_accelerator,
+            replay_state = AIReplay {
+                accel_params = AccelParams {
+                    use_alternate_accelerator = true,
+                    lazy_factor_circle = 0.8,
+                    lazy_factor_slider = 1,
+                    max_accel_circle = 999999,
+                    max_accel_slider = 20000,
+                    axis_count = 6,
+                    stop_distance = 3,
+                    overshoot_multuplier = 1,
+                    delta_accel_factor = 6,
+                    use_dynamic_axis = false,
+                    responsiveness = 0.0012,
+                },
+            },
+            color = {0, 1, 0, 1},
+        },
         //  {
         //     name = "Accelerator [experimental]",
         //     ai_fn = cursor_strategy_physical_accelerator,
@@ -441,6 +464,40 @@ draw_hit_object :: proc(beatmap: ^osu.Beatmap, index: int, preempt, fade_in: f64
                 approach_circle_radius,
                 64,
                 approach_circle_thickness,
+            )
+        }
+
+
+        draw_debug_info :: false
+
+        if draw_debug_info && hit_object.type == .Slider {
+            // slider debug info
+            af.set_draw_params(color = theme.Foreground)
+            af.draw_font_text(
+                af.im,
+                g_source_code_pro_regular,
+                fmt.tprintf(
+                    "%0.5v bpm, %0.5v sv, %0.5v sL, %0.5v sR",
+                    hit_object.bpm,
+                    hit_object.sv,
+                    hit_object.slider_length,
+                    hit_object.slider_repeats,
+                ),
+                50,
+                circle_pos + {50, 50},
+            )
+            af.draw_font_text(
+                af.im,
+                g_source_code_pro_regular,
+                fmt.tprintf(
+                    "%0.5v start, %0.5v end, %0.5v dur, %0.5v svx",
+                    hit_object.start_time,
+                    hit_object.end_time,
+                    hit_object.end_time - hit_object.start_time,
+                    hit_object.sm,
+                ),
+                50,
+                circle_pos + {50, -50},
             )
         }
     }

@@ -1,63 +1,37 @@
 Main objectives:
 
-I now plan on extending the scope of this software by quite a large margin, just to see how far I can actually take it.
-That is, both this software and my odin app framework.
-Hoping that Draoz gets rename and reference-finding implemented on the LSP at some point, but in the meantime, I will have to get creative.
-I no longer want this app to be compatible with osu!. Sure it will be able to load in osu! beatmaps, but I will be adding a lot more gamplay elements, possibly even a singleplayer mode with a storyline, and a lot of other things that won't 100% line up with the original osu! game.
+It is actually such a shame that most people in the osu! community think that the best beatmaps in the game are unplayable trash,
+especially because they are 100% correct. This AI was actually created so that I could see what a solid run on the nihil 
+Lil Darkie AMV (high sv) map would look like, because I doubt any osu! player will ever be able to, or want to, do something like that any time soon. 
 
+I now plan on extending the scope of this software by quite a bit, just to see how far I can actually take it.
+I no longer want this app to be compatible with osu! - 
+sure it will be able to load in 90% of osu! beatmaps, but I will be adding a lot more gamplay elements, possibly even 
+a singleplayer mode with a storyline, and a lot of other things that won't 100% line up with the original osu! game.
+The core gameplay will also need to change, if we want to expose those cool slider maps to newer players. 
+Not everyone has the time to play osu for 1-2 hours every day and grind till they can play them the normal way, while getting carpral tunnel in the process.
 
-TODO: New things to do
+TODO:
 
 - Improve the underlying odin framework
     - Use render+update in seperate thread feature
-    - Move away from immediate mode rendering, switch to images where possible. 
-    - Test out the idea of visual tests having a separate render/update method, and an update method that can assert things on it's own and flag failures without rendering
+- Refactor the codebase
+    - What I've noticed after coming back to this one year later, is that the code for most methods can be much better
 - Start making a playable osu! clone
-    - Want to add sliders that you need to drag manually
+    - Want to make the playfield and menus look nice
+    - Want to add a second kind of slider that needs to be dragged manually 
+    - The game needs to allow for creating as well as easily playing the more 'goated' osu! slider maps, and 2B maps
+- Improve the natural-looking AI
+    - Sliders are hard. the AI shouldn't be so good at them
+    - The AI should be able to play 2B maps
+    - The AI shouldn't be able to see (or at least pretend to not see) objects that aren't visible on the screen yet. 
 - Start making a bespoke osu! editor. Going to take a UX > UI
     - Our more natural looking AI can be incorporated here
-        - Needs a better algo for streaming. This is hard, so we can tackle it later
         - Should start doing keypresses
-        - Should be able to mroe easily navigate between misses
         - Seek bar, it will have a line graph showing acceleration/difficulty spikes based on accel most likely
     - Rotate/scale with same shortcuts
     - SV pallete, ability to scale sliders proportionally to sv, ability to change beat length without changing slider visual
     - Repeats?
     - Hitsounding should be like a DAW
-    - Possibly a custom beatmap format. We want to support more features
-
-OLD PRIORITIES:
-
-TODO:
-
-- Combo-colours
-- Hit objects
-    - [x] load them from the beatmap
-    - [x] circles, slider heads
-    - [x] slider bodies
-    - [x] object stacking https://osu.ppy.sh/wiki/en/Beatmap/Stack_leniency
-        - [x] end_position, end_time for all the sliders. 
-    - [x] followpoints
-        - [] followpoint animations
-    - [x] combo numbers
-        - [] non-jagged text rendering
-    - [x] slider snaking animation working through bugs
-        - [x] code support 
-    - [] slider un-snaking animation ...
-        - [x] code support
-    - [x] approach circles
-    - [x] slider repeat arrows
-        - [] animations for repeat arrows
-    - spinners
-        - [x] outline
-        - [x] spin animation
-    - combo colours
-        - [] basic support
-        - [] load them from the beatmap
-
-- Music
-    - [x] basic support
-    - [] load and use the beatmap music
-- Hitsounds
-    - [] basic support
-    - [] load and use the beatmap hitsounds
+    - Possibly a custom beatmap format. We want to support more features. It'll just be some JSON thing, so I can work with it
+        in a proper code editor

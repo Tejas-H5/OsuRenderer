@@ -175,6 +175,8 @@ HitObject :: struct {
     slider_path:              [dynamic]Vec2,
     // debug
     bpm:                      f64,
+    sv:                       f64,
+    sm:                       f64,
 }
 
 SliderNodeType :: enum {
@@ -220,11 +222,10 @@ parse_timing_point :: proc(str_orig: string) -> TimingPoint {
         tp.sv = 1.0
     } else {
         tp.bpm = -1
-        tp.sv = -100.0 / tp.beat_length
-
-        if (tp.sv < 0) {
-            af.debug_fatal_error("somethig not right here bro - %v", str_orig)
-        }
+        // As it turns out, this can't be less than 0.1. 
+        // rrttyui's Exit this earth's Atomosphere has a bunch of 0.07 SV sliders 
+        // that weren't working till I added this max() here
+        tp.sv = max(0.1, -100.0 / tp.beat_length)
     }
 
     return tp
@@ -315,9 +316,17 @@ parse_section :: proc(text: ^string, beatmap: ^Beatmap) -> bool {
             beatmap.timing_points[i] = parse_timing_point(line)
         }
 
-        slice.sort_by(beatmap.timing_points, proc(i, j: TimingPoint) -> bool {
-            return i.time < j.time
-        })
+        slice.sort_by(
+            beatmap.timing_points,
+            proc(i, j: TimingPoint) -> bool {
+                if math.abs(i.time - j.time) > 0.000001 {
+                    return i.time < j.time
+                }
+
+                // bpm changes should be before non-bpm changes
+                return i.is_bpm_change > j.is_bpm_change
+            },
+        )
     case "Colours":
         line_count := get_section_remaining_line_count(text^)
         beatmap.combo_colors = make([]ComboColor, line_count)

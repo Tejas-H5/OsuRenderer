@@ -3,56 +3,46 @@ package osu
 import "../af"
 import "core:math"
 
-FLOATING_POINT_TOLERANCE :: 0.0000001
-
 recalculate_object_end_time :: proc(beatmap: ^Beatmap, hit_object_index: int) {
     hit_object := beatmap.hit_objects[hit_object_index]
 
     if hit_object.type == .Slider {
-        // get the most recent sv. TODO: optimize
+        // get the most recent sv and bpm
+        // TODO: optimize. the recalculate_object_end_time should just take in the SV and BPM to use,
+        // Which should make the use-case of recalculating all objects in a for-loop faster
         sv: f64 = 1
-        last_sv_index := -1
-        for i in 0 ..< len(beatmap.timing_points) {
-            // We don't skip over is_bpm_change because they reset the SV to 1 implicitly
-            tp := beatmap.timing_points[i]
-            if tp.time > hit_object.start_time + FLOATING_POINT_TOLERANCE {
-                break
-            }
-
-            last_sv_index = i
-        }
-        if last_sv_index != -1 {
-            sv = beatmap.timing_points[last_sv_index].sv
-        }
-
-        // get the most recent bpm. TODO: optimize
         bpm: f64 = 120
-        last_bpm_index := -1
-        for i in 0 ..< len(beatmap.timing_points) {
-            tp := beatmap.timing_points[i]
-            if tp.is_bpm_change != 1 {
-                continue
-            }
-
-            if tp.time > hit_object.start_time + FLOATING_POINT_TOLERANCE && last_bpm_index != -1 {
+        found_bpm := false
+        for tp in beatmap.timing_points {
+            if tp.time > hit_object.start_time {
                 break
             }
 
-            last_bpm_index = i
+            if tp.is_bpm_change == 1 {
+                found_bpm = true
+                bpm = tp.bpm
+                sv = 1
+            } else {
+                sv = tp.sv
+            }
         }
-        if last_bpm_index == -1 {
+
+        if !found_bpm {
             af.debug_warning("beatmaps must have at least 1 bpm timing point to be valid")
         }
-        if last_bpm_index != -1 {
-            bpm = beatmap.timing_points[last_bpm_index].bpm
-        }
 
-        sv_real := sv * 100 * f64(beatmap.SliderMultiplier)
-        beat_length_real := 60 / bpm
-        duration := (f64(hit_object.slider_length) / sv_real) * beat_length_real
+        beat_length_real := f64(60 / bpm)
+
+        duration :=
+            f64(hit_object.slider_length) /
+            (sv * 100 * f64(beatmap.SliderMultiplier)) *
+            beat_length_real
+            
         repeats := hit_object.slider_repeats
 
         beatmap.hit_objects[hit_object_index].bpm = bpm
+        beatmap.hit_objects[hit_object_index].sv = sv
+        beatmap.hit_objects[hit_object_index].sm = f64(beatmap.SliderMultiplier)
         beatmap.hit_objects[hit_object_index].end_time =
             hit_object.start_time + duration * f64(repeats)
     }
