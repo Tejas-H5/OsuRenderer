@@ -1,11 +1,7 @@
-# Osu Clone
+# Osu Renderer
 
-An osu! beatmap renderer made in odin from scratch, mainly to test out my odin renderer
+This project was made in order to create a cursor accelerator that would be able to play 8*+ slider tech maps using a physics actuation system rather than just robotically lerping between all the points like the default osu! replay.
+And I have actually been able to get something that works! Maybe not the best thing in the world, but it's a huge improvement over what we get currently. 
+Now all that's left is to shed as much excess scope as possible, and make the program look decent.
 
-This project points to an osu! directory as specified by you in the `env.odin` file.
-Set it to the folder on your computer with all the osu! beatmaps (this is mainly so I'm not hosting music mp3s on github, but also 
-has the added benefit of allowing you to open any beatmap you want).
-
-
-This is an experimental software in it's early stages. 
-For a more accurate overview, read TODO.txt, as I can't be bothered keeping this readme updated at this moment, when I am performing a large number of changes.
+The renderer is something I wrote in C# like 5 years ago and then ported several times, so it's probably trash. I may rewrite it later. 
